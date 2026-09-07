@@ -69,6 +69,7 @@ fun main() = runCoroutine {
         .alertDeletedAnimeByTitle()
         .mergeAnime()
         .removeUnknownEntriesFromRelatedAnime()
+        .removeAmbiguousSynonyms()
         .addAnimeCountdown()
         .transformToDatasetEntries()
         .saveToDataset()

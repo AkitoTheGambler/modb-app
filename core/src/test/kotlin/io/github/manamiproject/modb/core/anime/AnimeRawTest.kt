@@ -1403,6 +1403,46 @@ internal class AnimeRawTest {
                 )
             }
         }
+
+        @Nested
+        inner class RemoveSynonymIfTests {
+
+            @Test
+            fun `successfully remove synonym`() {
+                // given
+                val anime = AnimeRaw(
+                    _title = "Death Note",
+                    _synonyms = hashSetOf(
+                        "Notatnik smierci",
+                    ),
+                )
+
+                // when
+                anime.removeSynonymIf { it == "Notatnik smierci" }
+
+                // then
+                assertThat(anime.synonyms).isEmpty()
+            }
+
+            @Test
+            fun `don't remove anything if condition doesn't match`() {
+                // given
+                val anime = AnimeRaw(
+                    _title = "Death Note",
+                    _synonyms = hashSetOf(
+                        "Notatnik smierci",
+                    ),
+                )
+
+                // when
+                anime.removeSynonymIf { it.contains("Bleach") }
+
+                // then
+                assertThat(anime.synonyms).containsExactly(
+                    "Notatnik smierci",
+                )
+            }
+        }
     }
 
     @Nested

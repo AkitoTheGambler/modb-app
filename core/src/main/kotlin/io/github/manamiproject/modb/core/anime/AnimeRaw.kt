@@ -162,6 +162,17 @@ public data class AnimeRaw(
     }
 
     /**
+     * Removes a [Title] from [synonyms] if the given condition matches.
+     * @since 19.2.0
+     * @param condition If an entry in [synonyms] matches this condition, then the [Title] will be removed from [synonyms].
+     * @return Same instance.
+     */
+    public fun removeSynonymIf(condition: (Title) -> Boolean): AnimeRaw {
+        _synonyms.removeIf { condition.invoke(it) }
+        return this
+    }
+
+    /**
      * Add additional studio names to the existing list. Studios are added in lower case. Duplicates are being ignored.
      * To further prevent duplicates, the longest studio name wins. Example:
      * When adding `satelight` and `satelight inc.` only `satelight inc.` will remain, because `satelight` is identified
