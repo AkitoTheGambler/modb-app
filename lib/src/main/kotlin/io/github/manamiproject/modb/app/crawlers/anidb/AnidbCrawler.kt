@@ -15,6 +15,7 @@ import io.github.manamiproject.modb.app.dataset.DefaultDeadEntriesAccessor
 import io.github.manamiproject.modb.app.network.NetworkControllers
 import io.github.manamiproject.modb.app.network.NetworkController
 import io.github.manamiproject.modb.app.network.SuspendableHttpClient
+import io.github.manamiproject.modb.app.network.isRouteFailure
 import io.github.manamiproject.modb.core.config.ConfigRegistry
 import io.github.manamiproject.modb.core.config.DefaultConfigRegistry
 import io.github.manamiproject.modb.core.config.IntPropertyDelegate
@@ -33,6 +34,7 @@ import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.UnknownHostException
 import kotlin.time.DurationUnit.MILLISECONDS
+import kotlin.time.DurationUnit.SECONDS
 import kotlin.time.toDuration
 
 /**
@@ -75,11 +77,24 @@ class AnidbCrawler(
         default = DEFAULT_MAX_CONNECTION_CHANGES,
     )
 
+    private val routeFailureWaitInSeconds: Int by IntPropertyDelegate(
+        configRegistry = configRegistry,
+        namespace = CONFIG_NAMESPACE,
+        default = DEFAULT_ROUTE_FAILURE_WAIT_IN_SECONDS,
+    )
+
     init {
         val restart = suspend { networkController.restartAsync().join() }
         httpClient.addRetryCases(ThrowableRetryCase(executeBefore = restart) { it is ConnectException})
         httpClient.addRetryCases(ThrowableRetryCase(executeBefore = restart) { it is UnknownHostException})
         httpClient.addRetryCases(ThrowableRetryCase(executeBefore = restart) { it is NoRouteToHostException})
+        // The route is replaced before the retry, so there is nothing to wait out on the old one.
+        httpClient.addRetryCases(
+            ThrowableRetryCase(
+                waitDuration = { attempt -> (routeFailureWaitInSeconds * attempt).toDuration(SECONDS) },
+                executeBefore = restart,
+            ) { it.isRouteFailure() }
+        )
     }
 
     override suspend fun start() {
@@ -161,6 +176,7 @@ class AnidbCrawler(
         private val log by LoggerDelegate()
 
         private const val DEFAULT_MAX_CONNECTION_CHANGES = 5
+        private const val DEFAULT_ROUTE_FAILURE_WAIT_IN_SECONDS = 5
 
         /**
          * Prefix of the properties read by this class.

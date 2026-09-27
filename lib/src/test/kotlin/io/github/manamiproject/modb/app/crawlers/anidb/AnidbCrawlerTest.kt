@@ -28,11 +28,14 @@ import kotlinx.coroutines.withContext
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatNoException
 import org.junit.jupiter.api.Nested
+import java.io.IOException
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.UnknownHostException
 import kotlin.io.path.listDirectoryEntries
 import kotlin.test.Test
+import kotlin.time.DurationUnit.SECONDS
+import kotlin.time.toDuration
 
 internal class AnidbCrawlerTest {
 
@@ -40,7 +43,7 @@ internal class AnidbCrawlerTest {
     inner class ConstructorTests {
 
         @Test
-        fun `adds RetryCases for ConnectException, UnknownHostException and NoRouteToHostException with restarting the NetworkController`() {
+        fun `adds RetryCases for ConnectException, UnknownHostException, NoRouteToHostException and route failures with restarting the NetworkController`() {
             tempDirectory {
                 // given
                 val cases = mutableListOf<RetryCase>()
@@ -71,7 +74,7 @@ internal class AnidbCrawlerTest {
                 )
 
                 // then
-                assertThat(cases).hasSize(3)
+                assertThat(cases).hasSize(4)
 
                 val connectException = cases.find { (it as ThrowableRetryCase).retryIf(ConnectException()) }
                 assertThat(connectException).isNotNull()
@@ -87,6 +90,12 @@ internal class AnidbCrawlerTest {
                 assertThat(noRouteToHostException).isNotNull()
                 noRouteToHostException!!.executeBefore.invoke()
                 assertThat(restartInvocations).isEqualTo(3)
+
+                val routeFailure = cases.find { (it as ThrowableRetryCase).retryIf(IOException("Unexpected response code for CONNECT: 503")) }
+                assertThat(routeFailure).isNotNull()
+                assertThat(routeFailure!!.waitDuration(1)).isEqualTo(5.toDuration(SECONDS))
+                routeFailure.executeBefore.invoke()
+                assertThat(restartInvocations).isEqualTo(4)
             }
         }
     }

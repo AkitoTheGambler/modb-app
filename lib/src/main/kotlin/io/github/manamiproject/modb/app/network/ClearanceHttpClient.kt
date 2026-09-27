@@ -18,7 +18,8 @@ import java.net.URL
  * @property httpClient Performs the actual request. Must reach the site by the same route the
  * clearance was issued to.
  * @property currentProxy Route requests currently leave by.
- * @property changeConnection Leaves by another route, for an address the site will not clear.
+ * @property changeConnection Leaves by another route, for an address the site will not clear or a route which cannot
+ * reach the site at all.
  * @property maxConnectionChanges Routes tried before the request is given up.
  */
 class ClearanceHttpClient(
@@ -47,7 +48,17 @@ class ClearanceHttpClient(
                 continue
             }
 
-            val response = httpClient.get(url, headers + clearanceHeaders())
+            val response = try {
+                httpClient.get(url, headers + clearanceHeaders())
+            } catch (e: Throwable) {
+                if (!e.isRouteFailure() || connectionChanges++ >= maxConnectionChanges) {
+                    throw e
+                }
+
+                log.info { "Could not reach [${url.host}] through [${currentProxy() ?: "this machine"}]: [${e.message}], changing connection." }
+                changeConnection()
+                continue
+            }
 
             if (response.code != CHALLENGED) {
                 return response
