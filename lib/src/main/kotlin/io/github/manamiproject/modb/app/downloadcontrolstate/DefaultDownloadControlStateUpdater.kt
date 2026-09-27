@@ -16,6 +16,7 @@ import io.github.manamiproject.modb.core.json.Json
 import io.github.manamiproject.modb.core.logging.LoggerDelegate
 import io.github.manamiproject.modb.core.anime.AnimeRaw
 import io.github.manamiproject.modb.core.date.WeekOfYear
+import io.github.manamiproject.modb.core.date.compareTo
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.joinAll
@@ -74,8 +75,8 @@ class DefaultDownloadControlStateUpdater(
 
     /**
      * A provider can stop serving us part way through its list. The entries it never answered for
-     * keep next-download set to the current week, which the week validation refuses, so a single
-     * provider cutting out ends the run with nothing published. They are moved to the following week
+     * keep next-download set to the current week, or to an earlier one if previous runs failed, which
+     * the week validation refuses, so a single provider cutting out ends the run with nothing published. They are moved to the following week
      * instead, which is where they would have landed had the entry been fetched and found unchanged.
      * Last-downloaded and the weeks-without-change counter are left alone, because no download
      * happened. Providers whose crawler was switched off are skipped, otherwise a run which
@@ -93,7 +94,7 @@ class DefaultDownloadControlStateUpdater(
                     .toSet()
 
                 val stranded = downloadControlStateAccessor.allDcsEntries(metaDataProviderConfig)
-                    .filter { it.nextDownload == currentWeek }
+                    .filter { it.nextDownload <= currentWeek }
                     .map { metaDataProviderConfig.extractAnimeId(it.anime.sources.first()) to it }
                     .filterNot { (animeId, _) -> animeId in fetched }
 
@@ -101,7 +102,7 @@ class DefaultDownloadControlStateUpdater(
                     return@forEach
                 }
 
-                log.warn { "Rescheduling [${stranded.size}] entries for [${metaDataProviderConfig.hostname()}] which were due this week, but never fetched." }
+                log.warn { "Rescheduling [${stranded.size}] entries for [${metaDataProviderConfig.hostname()}] which were due, but never fetched." }
 
                 stranded.forEach { (animeId, entry) ->
                     downloadControlStateAccessor.createOrUpdate(

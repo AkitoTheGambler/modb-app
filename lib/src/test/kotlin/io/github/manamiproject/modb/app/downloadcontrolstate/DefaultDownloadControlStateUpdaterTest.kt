@@ -677,6 +677,55 @@ internal class DefaultDownloadControlStateUpdaterTest {
             }
 
             @Test
+            fun `moves an entry which was due in an earlier week, but never fetched, to the following week`() {
+                tempDirectory {
+                    // given
+                    val rawdata = tempDir.resolve("rawdata").createDirectory()
+                    val clock = Clock.fixed(Instant.parse("2021-11-02T17:55:43.035Z"), ZoneId.systemDefault())
+
+                    val testAppConfig = object: Config by TestAppConfig {
+                        override fun downloadControlStateDirectory(): Directory = tempDir
+                        override fun metaDataProviderConfigurations(): Set<MetaDataProviderConfig> = setOf(AnilistConfig)
+                        override fun workingDir(metaDataProviderConfig: MetaDataProviderConfig): Directory = rawdata
+                        override fun findMetaDataProviderConfig(host: Hostname): MetaDataProviderConfig = AnilistConfig
+                        override fun clock(): Clock = clock
+                    }
+
+                    val overdue = DownloadControlStateEntry(
+                        _weeksWihoutChange = 3,
+                        _lastDownloaded = WeekOfYear.currentWeek().plusWeeks(-4),
+                        _nextDownload = WeekOfYear.currentWeek().plusWeeks(-2),
+                        _anime = AnimeRaw(
+                            _title = "Death Note",
+                            _sources = hashSetOf(URI("https://anilist.co/anime/1535")),
+                        ),
+                    )
+
+                    var received: DownloadControlStateEntry? = null
+                    val testDownloadControlStateAccessor = object: DownloadControlStateAccessor by TestDownloadControlStateAccessor {
+                        override suspend fun allDcsEntries(metaDataProviderConfig: MetaDataProviderConfig): List<DownloadControlStateEntry> = listOf(overdue)
+                        override suspend fun createOrUpdate(metaDataProviderConfig: MetaDataProviderConfig, animeId: AnimeId, downloadControlStateEntry: DownloadControlStateEntry): Boolean {
+                            received = downloadControlStateEntry
+                            return true
+                        }
+                    }
+
+                    val downloadControlStateUpdater = DefaultDownloadControlStateUpdater(
+                        appConfig = testAppConfig,
+                        downloadControlStateAccessor = testDownloadControlStateAccessor,
+                    )
+
+                    // when
+                    downloadControlStateUpdater.updateAll()
+
+                    // then
+                    assertThat(received?.nextDownload).isEqualTo(WeekOfYear.currentWeek().plusWeeks(1))
+                    assertThat(received?.lastDownloaded).isEqualTo(overdue.lastDownloaded)
+                    assertThat(received?.weeksWihoutChange).isEqualTo(overdue.weeksWihoutChange)
+                }
+            }
+
+            @Test
             fun `leaves an entry alone if it has been fetched`() {
                 tempDirectory {
                     // given
