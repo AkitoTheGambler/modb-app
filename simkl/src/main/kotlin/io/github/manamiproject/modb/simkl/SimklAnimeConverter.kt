@@ -255,9 +255,11 @@ public class SimklAnimeConverter(
     }
 
     private fun extractSourcesEntry(data: ExtractionResult): HashSet<URI> {
-        val animeId = data.string("source")
-            .remove(metaDataProviderConfig.buildAnimeLink(EMPTY).toString())
-            .substringBefore('/')
+        val source = data.string("source")
+        val animeLinkPrefix = metaDataProviderConfig.buildAnimeLink(EMPTY).toString()
+        check(source.startsWith(animeLinkPrefix)) { "Page of [$source] is not an anime." }
+
+        val animeId = source.remove(animeLinkPrefix).substringBefore('/')
 
         return hashSetOf(metaDataProviderConfig.buildAnimeLink(animeId))
     }

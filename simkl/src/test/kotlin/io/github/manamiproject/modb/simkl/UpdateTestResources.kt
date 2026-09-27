@@ -55,6 +55,7 @@ private val files = mapOf(
     "SimklAnimeConverterTest/scores/no-score.html" to "40239",
     "SimklAnimeConverterTest/scores/score.html" to "40190",
 
+    "SimklAnimeConverterTest/sources/38399_movie.html" to "38399",
     "SimklAnimeConverterTest/sources/41586.html" to "41586",
 
     "SimklAnimeConverterTest/status/airdate-year-only-indicating-finished.html" to "2445240",

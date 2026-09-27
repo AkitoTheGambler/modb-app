@@ -12,6 +12,7 @@ import io.github.manamiproject.modb.core.anime.AnimeStatus.*
 import io.github.manamiproject.modb.core.anime.AnimeType.*
 import io.github.manamiproject.modb.core.anime.Duration.TimeUnit.*
 import io.github.manamiproject.modb.core.config.Hostname
+import io.github.manamiproject.modb.test.exceptionExpected
 import io.github.manamiproject.modb.test.loadTestResource
 import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
@@ -777,6 +778,30 @@ internal class SimklAnimeConverterTest {
                 assertThat(result.sources).containsExactlyInAnyOrder(
                     URI("https://simkl.com/anime/41586"),
                 )
+            }
+        }
+
+        @Test
+        fun `refuses a page which is no longer in the anime section`() {
+            runTest {
+                // given
+                val testSimklConfig = object : MetaDataProviderConfig by TestMetaDataProviderConfig {
+                    override fun hostname(): Hostname = SimklConfig.hostname()
+                    override fun buildAnimeLink(id: AnimeId): URI = SimklConfig.buildAnimeLink(id)
+                    override fun fileSuffix(): FileSuffix = SimklConfig.fileSuffix()
+                }
+
+                val testFile = loadTestResource<String>("SimklAnimeConverterTest/sources/38399_movie.html")
+
+                val converter = SimklAnimeConverter(testSimklConfig)
+
+                // when
+                val result = exceptionExpected<IllegalStateException> {
+                    converter.convert(testFile)
+                }
+
+                // then
+                assertThat(result).hasMessage("Page of [https://simkl.com/movies/38399/drums-of-fu-manchu] is not an anime.")
             }
         }
     }

@@ -29,18 +29,28 @@ public class SimklDownloader(
         check(responseBody.neitherNullNorBlank()) { "Response body was blank for [simklId=$id] with response code [${response.code}]" }
 
         return when {
-            response.code == 200 && !responseBody.contains(DEAD_ENTRY_INDICATOR) -> responseBody
-            response.code == 200 && responseBody.contains(DEAD_ENTRY_INDICATOR) -> {
+            response.code == 200 && (responseBody.contains(DEAD_ENTRY_INDICATOR) || isNoLongerAnAnime(responseBody)) -> {
                 onDeadEntry.invoke(id)
                 EMPTY
             }
+            response.code == 200 -> responseBody
             else -> throw IllegalStateException("Unable to determine the correct case for [simklId=$id], [responseCode=${response.code}]")
         }
     }
 
+    /**
+     * simkl moves an entry it no longer counts as anime to another section and redirects the anime link there, so the
+     * page still loads. Its canonical address is the only sign that the entry has left the anime catalogue.
+     */
+    private fun isNoLongerAnAnime(responseBody: String): Boolean {
+        val canonical = CANONICAL_URL.find(responseBody)?.groupValues?.get(1) ?: return false
+        return !canonical.startsWith(metaDataProviderConfig.buildAnimeLink(EMPTY).toString())
+    }
+
     public companion object {
         private val log by LoggerDelegate()
-        private const val DEAD_ENTRY_INDICATOR = """<meta property="og:title" content="Simkl - Watch and Track Movies, Anime, TV Shows" />"""
+        private val CANONICAL_URL = Regex("""<meta property="og:url" content="([^"]+)"""")
+        private const val DEAD_ENTRY_INDICATOR ="""<meta property="og:title" content="Simkl - Watch and Track Movies, Anime, TV Shows" />"""
 
         /**
          * Singleton of [SimklDownloader]

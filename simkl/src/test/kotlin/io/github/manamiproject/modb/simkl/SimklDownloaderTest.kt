@@ -88,6 +88,71 @@ internal class SimklDownloaderTest : MockServerTestCase<WireMockServer> by WireM
     }
 
     @Test
+    fun `identifies an entry which has been moved out of the anime section as dead`() {
+        runTest {
+            // given
+            val testConfig = object : MetaDataProviderConfig by SimklConfig {
+                override fun hostname(): Hostname = "localhost"
+                override fun buildDataDownloadLink(id: String): URI = URI("http://localhost:$port/anime/$id")
+            }
+
+            val id = "38399"
+
+            serverInstance.stubFor(
+                get(urlPathEqualTo("/anime/$id")).willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withBody("""<html><head><meta property="og:url" content="https://simkl.com/movies/38399/drums-of-fu-manchu" /></head><body>movie</body></html>""")
+                )
+            )
+
+            var deadEntry: AnimeId? = null
+            val downloader = SimklDownloader(testConfig)
+
+            // when
+            val result = downloader.download(id) {
+                deadEntry = it
+            }
+
+            // then
+            assertThat(deadEntry).isEqualTo(id)
+            assertThat(result).isEmpty()
+        }
+    }
+
+    @Test
+    fun `keeps an entry whose canonical address is in the anime section`() {
+        runTest {
+            // given
+            val testConfig = object : MetaDataProviderConfig by SimklConfig {
+                override fun hostname(): Hostname = "localhost"
+                override fun buildDataDownloadLink(id: String): URI = URI("http://localhost:$port/anime/$id")
+            }
+
+            val id = "2093848"
+            val body = """<html><head><meta property="og:url" content="https://simkl.com/anime/2093848/lycoris-recoil-friends-are-thieves-of-time" /></head><body>anime</body></html>"""
+
+            serverInstance.stubFor(
+                get(urlPathEqualTo("/anime/$id")).willReturn(
+                    aResponse()
+                        .withStatus(200)
+                        .withBody(body)
+                )
+            )
+
+            val downloader = SimklDownloader(testConfig)
+
+            // when
+            val result = downloader.download(id) {
+                shouldNotBeInvoked()
+            }
+
+            // then
+            assertThat(result).isEqualTo(body)
+        }
+    }
+
+    @Test
     fun `unhandled response code throws exception`() {
         // given
         val testConfig = object: MetaDataProviderConfig by SimklConfig {
