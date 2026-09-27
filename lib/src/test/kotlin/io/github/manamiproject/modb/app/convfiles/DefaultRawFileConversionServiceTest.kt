@@ -2,8 +2,10 @@ package io.github.manamiproject.modb.app.convfiles
 
 import io.github.manamiproject.modb.app.TestAppConfig
 import io.github.manamiproject.modb.app.TestMetaDataProviderConfig
+import io.github.manamiproject.modb.app.TestConfigRegistry
 import io.github.manamiproject.modb.app.config.Config
 import io.github.manamiproject.modb.app.crawlers.anidb.AnidbCrawler.Companion.ANIDB_PENDING_FILE_SUFFIX
+import io.github.manamiproject.modb.core.config.ConfigRegistry
 import io.github.manamiproject.modb.core.config.FileSuffix
 import io.github.manamiproject.modb.core.config.Hostname
 import io.github.manamiproject.modb.core.config.MetaDataProviderConfig
@@ -11,13 +13,11 @@ import io.github.manamiproject.modb.core.extensions.Directory
 import io.github.manamiproject.modb.test.shouldNotBeInvoked
 import io.github.manamiproject.modb.test.tempDirectory
 import kotlinx.coroutines.Dispatchers.IO
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Nested
-import org.junit.jupiter.api.assertThrows
 import kotlin.io.path.createDirectory
 import kotlin.io.path.createFile
 import kotlin.test.Test
@@ -222,7 +222,7 @@ internal class DefaultRawFileConversionServiceTest {
         }
 
         @Test
-        fun `throws exception in case the the timeout hits`() {
+        fun `returns and leaves files behind when conversion stops making progress`() {
             tempDirectory {
                 // given
                 val testConfig1: MetaDataProviderConfig = object: MetaDataProviderConfig by TestMetaDataProviderConfig {
@@ -256,15 +256,50 @@ internal class DefaultRawFileConversionServiceTest {
 
                 val defaultRawFileConversionStatusChecker = DefaultRawFileConversionService(
                     appConfig = testAppConfig,
+                    configRegistry = object: ConfigRegistry by TestConfigRegistry {
+                        override fun int(key: String): Int? = when (key) {
+                            "modb.app.conversionStallChecks" -> 2
+                            else -> null
+                        }
+                    },
                 )
 
                 // when
-                val result = assertThrows<TimeoutCancellationException> { // exceptionExpected cannot catch TimeoutCancellationException
-                    defaultRawFileConversionStatusChecker.waitForAllRawFilesToBeConverted()
-                }
+                defaultRawFileConversionStatusChecker.waitForAllRawFilesToBeConverted()
 
                 // then
-                assertThat(result).hasMessage("Timed out after 10s of _virtual_ (kotlinx.coroutines.test) time. To use the real time, wrap 'withTimeout' in 'withContext(Dispatchers.Default.limitedParallelism(1))'")
+                assertThat(dir1.resolve("1.$CONVERTED_FILE_SUFFIX")).doesNotExist()
+                assertThat(dir2.resolve("3.$CONVERTED_FILE_SUFFIX")).doesNotExist()
+            }
+        }
+
+        @Test
+        fun `stops waiting as soon as the last file has been converted`() {
+            tempDirectory {
+                // given
+                val testConfig: MetaDataProviderConfig = object: MetaDataProviderConfig by TestMetaDataProviderConfig {
+                    override fun hostname(): Hostname = "example.org"
+                    override fun fileSuffix(): FileSuffix = "json"
+                }
+
+                val dir = tempDir.resolve("provider").createDirectory()
+                dir.resolve("1.${testConfig.fileSuffix()}").createFile()
+                dir.resolve("1.$CONVERTED_FILE_SUFFIX").createFile()
+
+                val testAppConfig = object: Config by TestAppConfig {
+                    override fun metaDataProviderConfigurations() = setOf(testConfig)
+                    override fun workingDir(metaDataProviderConfig: MetaDataProviderConfig): Directory = dir
+                }
+
+                val defaultRawFileConversionStatusChecker = DefaultRawFileConversionService(
+                    appConfig = testAppConfig,
+                )
+
+                // when
+                defaultRawFileConversionStatusChecker.waitForAllRawFilesToBeConverted()
+
+                // then
+                assertThat(defaultRawFileConversionStatusChecker.unconvertedFilesExist()).isFalse()
             }
         }
     }

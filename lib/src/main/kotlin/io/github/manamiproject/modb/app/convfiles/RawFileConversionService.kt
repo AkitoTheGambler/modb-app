@@ -1,7 +1,5 @@
 package io.github.manamiproject.modb.app.convfiles
 
-import kotlinx.coroutines.TimeoutCancellationException
-
 /**
  * Allows to check the conversion status of raw files.
  * Raw files are converted into an intermediate format with file suffix [CONVERTED_FILE_SUFFIX].
@@ -17,9 +15,9 @@ interface RawFileConversionService {
     suspend fun unconvertedFilesExist(): Boolean
 
     /**
-     * Blocking call that waits until all raw files have been converted.
+     * Blocking call that waits until all raw files have been converted. Returns as soon as conversion stops making
+     * progress, leaving files which cannot be converted behind rather than failing the run over them.
      * @since 1.0.0
-     * @throws TimeoutCancellationException if files have not been converted within a waiting time of 10 seconds.
      */
     suspend fun waitForAllRawFilesToBeConverted()
 

@@ -14,10 +14,17 @@ import io.github.manamiproject.modb.anisearch.AnisearchRelationsConfig
 import io.github.manamiproject.modb.app.config.AppConfig
 import io.github.manamiproject.modb.app.config.Config
 import io.github.manamiproject.modb.app.crawlers.anidb.AnidbCrawler.Companion.ANIDB_PENDING_FILE_SUFFIX
+import io.github.manamiproject.modb.app.downloadcontrolstate.DefaultDownloadControlStateUpdater.Companion.APP_NAMESPACE
+import io.github.manamiproject.modb.core.config.ConfigRegistry
+import io.github.manamiproject.modb.core.config.Hostname
+import io.github.manamiproject.modb.core.config.DefaultConfigRegistry
+import io.github.manamiproject.modb.core.config.IntPropertyDelegate
 import io.github.manamiproject.modb.core.converter.DefaultPathAnimeConverter
 import io.github.manamiproject.modb.core.coroutines.ModbDispatchers.LIMITED_CPU
 import io.github.manamiproject.modb.core.coverage.KoverIgnore
 import io.github.manamiproject.modb.core.excludeFromTestContext
+import io.github.manamiproject.modb.core.extensions.EMPTY
+import io.github.manamiproject.modb.core.extensions.fileName
 import io.github.manamiproject.modb.core.extensions.fileSuffix
 import io.github.manamiproject.modb.core.extensions.listRegularFiles
 import io.github.manamiproject.modb.core.logging.LoggerDelegate
@@ -39,40 +46,84 @@ import kotlin.time.toDuration
  * Uses [WatchService] implementations to constantly convert files as they are created.
  * @since 1.0.0
  * @param appConfig Application specific configuration. Uses [AppConfig] by default.
+ * @param configRegistry Config registry used to load the waiting times.
  */
 class DefaultRawFileConversionService(
     private val appConfig: Config = AppConfig.instance,
+    configRegistry: ConfigRegistry = DefaultConfigRegistry.instance,
 ): RawFileConversionService {
 
     private val watchServices = CopyOnWriteArrayList(mutableListOf<WatchService>())
 
-    override suspend fun unconvertedFilesExist(): Boolean {
-        log.info { "Checking if there are still files which need to be converted." }
+    private val conversionTimeoutInSeconds: Int by IntPropertyDelegate(
+        configRegistry = configRegistry,
+        namespace = APP_NAMESPACE,
+        default = DEFAULT_CONVERSION_TIMEOUT_IN_SECONDS,
+    )
 
-        var unconverted = 0
-        var converted = 0
+    private val conversionStallChecks: Int by IntPropertyDelegate(
+        configRegistry = configRegistry,
+        namespace = APP_NAMESPACE,
+        default = DEFAULT_CONVERSION_STALL_CHECKS,
+    )
 
-        appConfig.metaDataProviderConfigurations().forEach { config ->
-            appConfig.workingDir(config)
-                .listRegularFiles()
-                .filterNot { it.fileSuffix() == ANIDB_PENDING_FILE_SUFFIX }
-                .forEach { file ->
-                    when {
-                        file.fileSuffix() == config.fileSuffix() -> unconverted++
-                        file.fileSuffix() == CONVERTED_FILE_SUFFIX -> converted++
-                    }
-                }
-        }
-
-        return unconverted > converted
-    }
+    override suspend fun unconvertedFilesExist(): Boolean = unconvertedFiles().isNotEmpty()
 
     override suspend fun waitForAllRawFilesToBeConverted() {
-        withTimeout(10.toDuration(SECONDS)) {
-            while (unconvertedFilesExist()) {
+        var pending = unconvertedFiles()
+        var checksWithoutProgress = 0
+
+        withTimeoutOrNull(conversionTimeoutInSeconds.toDuration(SECONDS)) {
+            while (pending.isNotEmpty() && checksWithoutProgress < conversionStallChecks) {
+                val previous = pending.numberOfFiles()
                 wait()
+                pending = unconvertedFiles()
+
+                checksWithoutProgress = if (pending.numberOfFiles() < previous) {
+                    0
+                } else {
+                    checksWithoutProgress + 1
+                }
             }
         }
+
+        if (pending.isEmpty()) {
+            return
+        }
+
+        log.warn { "Continuing with [${pending.numberOfFiles()}] raw files which could not be converted." }
+
+        pending.forEach { (hostname, files) ->
+            log.warn { "Unconverted for [$hostname]: ${files.sorted().take(MAX_REPORTED_FILES_PER_PROVIDER)}${if (files.size > MAX_REPORTED_FILES_PER_PROVIDER) " and [${files.size - MAX_REPORTED_FILES_PER_PROVIDER}] more" else EMPTY}" }
+        }
+    }
+
+    private fun Map<Hostname, Set<String>>.numberOfFiles(): Int = this.values.sumOf { it.size }
+
+    /**
+     * Raw files which have no corresponding converted file, keyed by hostname. Counting raw files against converted
+     * files in total cannot tell a file which is still being converted from one which never will be, so a single
+     * unconvertible entry would keep the total apart forever.
+     */
+    private suspend fun unconvertedFiles(): Map<Hostname, Set<String>> {
+        log.info { "Checking if there are still files which need to be converted." }
+
+        return appConfig.metaDataProviderConfigurations().mapNotNull { config ->
+            val files = appConfig.workingDir(config)
+                .listRegularFiles()
+                .filterNot { it.fileSuffix() == ANIDB_PENDING_FILE_SUFFIX }
+
+            val converted = files.filter { it.fileSuffix() == CONVERTED_FILE_SUFFIX }
+                .map { it.fileName().substringBeforeLast('.') }
+                .toHashSet()
+
+            val unconverted = files.filter { it.fileSuffix() == config.fileSuffix() }
+                .map { it.fileName().substringBeforeLast('.') }
+                .filterNot { it in converted }
+                .toHashSet()
+
+            if (unconverted.isEmpty()) null else config.hostname() to unconverted
+        }.toMap()
     }
 
     @KoverIgnore
@@ -154,6 +205,10 @@ class DefaultRawFileConversionService(
 
     companion object {
         private val log by LoggerDelegate()
+
+        private const val DEFAULT_CONVERSION_TIMEOUT_IN_SECONDS = 900
+        private const val DEFAULT_CONVERSION_STALL_CHECKS = 30
+        private const val MAX_REPORTED_FILES_PER_PROVIDER = 25
 
         /**
          * Singleton of [DefaultRawFileConversionService]
