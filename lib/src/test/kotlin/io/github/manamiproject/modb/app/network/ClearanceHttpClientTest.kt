@@ -26,13 +26,33 @@ internal class ClearanceHttpClientTest {
     inner class GetTests {
 
         @Test
-        fun `obtains a clearance before the first request and presents it`() {
+        fun `sends the request without a render when the site does not challenge`() {
+            runBlocking {
+                // given
+                val sent = mutableListOf<Map<String, Collection<String>>>()
+                val client = ClearanceHttpClient(
+                    clearance = clearanceWith(null),
+                    httpClient = recording(sent, 200),
+                )
+
+                // when
+                val result = client.get(URI("https://www.anime-planet.com/anime/death-note").toURL())
+
+                // then
+                assertThat(result.code).isEqualTo(200)
+                assertThat(sent).hasSize(1)
+                assertThat(sent.first()).doesNotContainKey("Cookie")
+            }
+        }
+
+        @Test
+        fun `obtains a clearance once challenged and presents it`() {
             runBlocking {
                 // given
                 val sent = mutableListOf<Map<String, Collection<String>>>()
                 val client = ClearanceHttpClient(
                     clearance = clearanceWith(solved),
-                    httpClient = recording(sent, 200),
+                    httpClient = answering(sent, 403, 200),
                 )
 
                 // when
@@ -40,9 +60,76 @@ internal class ClearanceHttpClientTest {
 
                 // then
                 assertThat(result.code).isEqualTo(200)
-                assertThat(sent).hasSize(1)
-                assertThat(sent.first()["Cookie"]?.first()).isEqualTo("cf_clearance=abc; adbuin=1")
-                assertThat(sent.first()["User-Agent"]?.first()).isEqualTo("Mozilla/5.0 (X11)")
+                assertThat(sent).hasSize(2)
+                assertThat(sent.last()["Cookie"]?.first()).isEqualTo("cf_clearance=abc; adbuin=1")
+                assertThat(sent.last()["User-Agent"]?.first()).isEqualTo("Mozilla/5.0 (X11)")
+            }
+        }
+
+        @Test
+        fun `keeps presenting a clearance without rendering again`() {
+            runBlocking {
+                // given
+                val sent = mutableListOf<Map<String, Collection<String>>>()
+                var renders = 0
+                val client = ClearanceHttpClient(
+                    clearance = clearanceWith(solved) { renders++ },
+                    httpClient = answering(sent, 403, 200, 200, 200),
+                )
+
+                // when
+                repeat(3) { client.get(URI("https://anidb.net/anime/23").toURL()) }
+
+                // then
+                assertThat(renders).isOne()
+                assertThat(sent.drop(1)).allSatisfy { assertThat(it["Cookie"]?.first()).isEqualTo("cf_clearance=abc; adbuin=1") }
+            }
+        }
+
+        @Test
+        fun `presents the clearance a route earned when rotating back to it`() {
+            runBlocking {
+                // given
+                val sent = mutableListOf<Map<String, Collection<String>>>()
+                var renders = 0
+                var route = "http://127.0.0.1:1"
+                val client = ClearanceHttpClient(
+                    clearance = clearanceWith(solved) { renders++ },
+                    httpClient = answering(sent, 403, 200, 403, 200, 200),
+                    currentProxy = { route },
+                )
+
+                // when
+                client.get(URI("https://anidb.net/anime/1").toURL())
+                route = "http://127.0.0.1:2"
+                client.get(URI("https://anidb.net/anime/2").toURL())
+                route = "http://127.0.0.1:1"
+                client.get(URI("https://anidb.net/anime/3").toURL())
+
+                // then
+                assertThat(renders).isEqualTo(2)
+                assertThat(sent.last()["Cookie"]?.first()).isEqualTo("cf_clearance=abc; adbuin=1")
+            }
+        }
+
+        @Test
+        fun `changes connection when a fresh clearance is refused as well`() {
+            runBlocking {
+                // given
+                val sent = mutableListOf<Map<String, Collection<String>>>()
+                var connectionChanges = 0
+                val client = ClearanceHttpClient(
+                    clearance = clearanceWith(solved),
+                    httpClient = answering(sent, 403, 403, 200),
+                    changeConnection = { connectionChanges++ },
+                )
+
+                // when
+                val result = client.get(URI("https://anidb.net/anime/23").toURL())
+
+                // then
+                assertThat(result.code).isEqualTo(200)
+                assertThat(connectionChanges).isOne()
             }
         }
 
@@ -179,18 +266,33 @@ internal class ClearanceHttpClientTest {
         override fun addRetryCases(vararg retryCases: RetryCase): HttpClient = this
     }
 
-    private fun clearanceWith(solverResponse: String) = CloudflareClearance(
+    private fun clearanceWith(solverResponse: String?, onRender: () -> Unit = {}) = CloudflareClearance(
         configRegistry = object: ConfigRegistry by TestConfigRegistry {
-            override fun string(key: String): String = "http://solver.invalid:8191/v1"
+            override fun string(key: String): String? = when (key) {
+                "modb.app.challenge.solverUrl" -> "http://solver.invalid:8191/v1"
+                else -> null
+            }
+            override fun int(key: String): Int? = null
         },
         httpClient = object: HttpClient {
             override suspend fun get(url: URL, headers: Map<String, Collection<String>>): HttpResponse = shouldNotBeInvoked()
             override suspend fun post(url: URL, requestBody: RequestBody, headers: Map<String, Collection<String>>): HttpResponse {
-                return HttpResponse(200, solverResponse)
+                onRender()
+                return HttpResponse(200, solverResponse ?: shouldNotBeInvoked())
             }
             override fun addRetryCases(vararg retryCases: RetryCase): HttpClient = this
         },
     )
+
+    private fun answering(sent: MutableList<Map<String, Collection<String>>>, vararg codes: Int) = object: HttpClient {
+        private val remaining = codes.toMutableList()
+        override suspend fun get(url: URL, headers: Map<String, Collection<String>>): HttpResponse {
+            sent.add(headers)
+            return HttpResponse(remaining.removeFirst(), "body")
+        }
+        override suspend fun post(url: URL, requestBody: RequestBody, headers: Map<String, Collection<String>>): HttpResponse = shouldNotBeInvoked()
+        override fun addRetryCases(vararg retryCases: RetryCase): HttpClient = this
+    }
 
     private fun recording(sent: MutableList<Map<String, Collection<String>>>, code: Int) = object: HttpClient {
         override suspend fun get(url: URL, headers: Map<String, Collection<String>>): HttpResponse {

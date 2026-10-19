@@ -2,6 +2,7 @@ package io.github.manamiproject.modb.app.network
 
 import io.github.manamiproject.modb.core.config.ConfigRegistry
 import io.github.manamiproject.modb.core.config.DefaultConfigRegistry
+import io.github.manamiproject.modb.core.config.IntPropertyDelegate
 import io.github.manamiproject.modb.core.config.StringPropertyDelegate
 import io.github.manamiproject.modb.core.httpclient.DefaultHttpClient
 import io.github.manamiproject.modb.core.httpclient.HttpClient
@@ -12,20 +13,39 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.net.URI
 import java.net.URL
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
+import java.nio.file.StandardCopyOption.REPLACE_EXISTING
+import java.time.Clock
+import java.time.Duration
+import java.time.Instant
+import kotlin.io.path.Path
+import kotlin.io.path.exists
+import kotlin.io.path.readText
+import kotlin.io.path.writeText
 
 /**
- * Holds a clearance for a site which answers automated requests with a browser check.
+ * Holds the clearances for a site which answers automated requests with a browser check.
  *
- * Obtaining one costs a full browser render, so it is done once and the resulting cookie and user
- * agent are reused for subsequent requests. A clearance is tied to the address it was issued to, so
- * the solver has to reach the site the same way the crawler does.
+ * Obtaining one costs a full browser render, which through a metered proxy is megabytes rather than
+ * the kilobytes of the page itself. A clearance is tied to the address it was issued to, so one is
+ * kept per route: rotating back to a route reuses what it earned instead of rendering again.
+ *
+ * Clearances are written to `modb.app.challenge.clearanceFile` when it is set, so a restarted run
+ * picks them up instead of rendering again for every route. One older than
+ * `modb.app.challenge.clearanceMaxAgeHours` is not presented.
  * @since 1.0.0
- * @property configRegistry Source of the solver endpoint.
+ * @property configRegistry Source of the solver endpoint and the clearance store settings.
  * @property httpClient Used to talk to the solver, not to the site.
+ * @property hostname Site the clearances are for. Names the entries in the clearance file.
+ * @property clock Decides the age of a clearance.
  */
 class CloudflareClearance(
     configRegistry: ConfigRegistry = DefaultConfigRegistry.instance,
     private val httpClient: HttpClient = solverClient(),
+    private val hostname: String = "",
+    private val clock: Clock = Clock.systemUTC(),
 ) {
 
     private val solverUrl: String by StringPropertyDelegate(
@@ -34,28 +54,20 @@ class CloudflareClearance(
         default = EMPTY_SOLVER,
     )
 
+    private val clearanceFile: String by StringPropertyDelegate(
+        configRegistry = configRegistry,
+        namespace = CONFIG_NAMESPACE,
+        default = NO_FILE,
+    )
+
+    private val clearanceMaxAgeHours: Int by IntPropertyDelegate(
+        configRegistry = configRegistry,
+        namespace = CONFIG_NAMESPACE,
+        default = DEFAULT_MAX_AGE_HOURS,
+    )
+
     private val lock = Mutex()
-
-    /**
-     * Cookie header value of the current clearance, empty when none has been obtained.
-     * @since 1.0.0
-     */
-    var cookie: String = ""
-        private set
-
-    /**
-     * User agent the clearance was issued to. A clearance presented by a different agent is refused.
-     * @since 1.0.0
-     */
-    var userAgent: String = ""
-        private set
-
-    /**
-     * Route the current clearance was issued to, `null` when there is none.
-     * @since 1.0.0
-     */
-    var issuedTo: String? = null
-        private set
+    private var held: MutableMap<String, StoredClearance>? = null
 
     /**
      * @since 1.0.0
@@ -64,49 +76,53 @@ class CloudflareClearance(
     fun isConfigured(): Boolean = solverUrl != EMPTY_SOLVER && solverUrl.isNotBlank()
 
     /**
-     * Makes sure a clearance is held for the given route, obtaining one only if the current
-     * clearance was issued to a different one.
-     *
-     * A clearance is bound to the address which earned it, so changing route invalidates it just as
-     * surely as time does. The site does not always answer the mismatch with a challenge, so waiting
-     * for one before renewing can leave the crawler presenting a clearance no address it uses will
-     * be accepted with.
      * @since 1.0.0
-     * @param url Page to render if a clearance is needed.
-     * @param proxyUrl Route the clearance has to be valid for.
-     * @return `true` if a clearance for this route is held.
+     * @param route Route the clearance has to be valid for, `null` for leaving directly.
+     * @return The clearance held for this route, or `null` if there is none young enough to present.
      */
-    suspend fun ensureIssuedTo(url: URL, proxyUrl: String? = null): Boolean {
-        lock.withLock {
-            if (cookie.isNotBlank() && issuedTo == proxyUrl) {
-                return true
-            }
-        }
+    suspend fun heldFor(route: String?): Clearance? = lock.withLock {
+        val entry = clearances()[keyOf(route)] ?: return@withLock null
 
-        return refresh(url, proxyUrl)
+        return@withLock when {
+            isExpired(entry) -> null
+            else -> Clearance(cookie = entry.cookie, userAgent = entry.userAgent)
+        }
     }
 
     /**
-     * Obtains a clearance by having the solver render the given page.
+     * Forgets the clearance of a route, because the site no longer accepts it.
+     * @since 1.0.0
+     * @param route Route whose clearance was refused.
+     */
+    suspend fun discard(route: String?) = lock.withLock {
+        if (clearances().remove(keyOf(route)) != null) {
+            persist()
+        }
+    }
+
+    /**
+     * Obtains a clearance for a route by having the solver render the given page.
      * @since 1.0.0
      * @param url Page to render. Any page of the site will do.
+     * @param route Route the solver has to leave through, `null` for leaving directly.
      * @return `true` if a clearance was obtained.
      */
-    suspend fun refresh(url: URL, proxyUrl: String? = null): Boolean = lock.withLock {
+    suspend fun refresh(url: URL, route: String? = null): Boolean = lock.withLock {
         check(isConfigured()) { "No challenge solver configured. Set [$CONFIG_NAMESPACE.solverUrl]." }
 
-        log.info { "Requesting a clearance for [${url.host}] from the challenge solver, leaving through [${proxyUrl ?: "this machine"}]." }
+        log.info { "Requesting a clearance for [${url.host}] from the challenge solver, leaving through [${route ?: "this machine"}]." }
 
         // The clearance is issued to whichever address renders the page, so the solver has to
         // leave by the same route the crawler will use, or the cookie it returns is worthless.
         val proxy = when {
-            proxyUrl.isNullOrBlank() -> ""
-            else -> ""","proxy":{"url":"$proxyUrl"}"""
+            route.isNullOrBlank() -> ""
+            else -> ""","proxy":{"url":"$route"}"""
         }
 
+        // Images and media are most of what a render downloads and play no part in the challenge.
         val body = RequestBody(
             mediaType = "application/json",
-            body = """{"cmd":"request.get","url":"$url","maxTimeout":$SOLVER_TIMEOUT$proxy}""",
+            body = """{"cmd":"request.get","url":"$url","maxTimeout":$SOLVER_TIMEOUT,"disableMedia":true$proxy}""",
         )
 
         val response = httpClient.post(URI(solverUrl).toURL(), body).bodyAsString()
@@ -114,7 +130,6 @@ class CloudflareClearance(
 
         if (parsed?.status != "ok" || parsed.solution == null) {
             log.warn { "Solver could not obtain a clearance: [${parsed?.message}]" }
-            issuedTo = null
             return@withLock false
         }
 
@@ -122,24 +137,62 @@ class CloudflareClearance(
         // it could not use the route it was given. Reporting that as success leaves the crawler
         // presenting nothing and wondering why every request is refused.
         if (parsed.solution.cookies.isEmpty()) {
-            log.warn { "Solver returned no cookies, so [${url.host}] was not reached through [${proxyUrl ?: "this machine"}]." }
-            issuedTo = null
+            log.warn { "Solver returned no cookies, so [${url.host}] was not reached through [${route ?: "this machine"}]." }
             return@withLock false
         }
 
-        cookie = parsed.solution.cookies.joinToString("; ") { "${it.name}=${it.value}" }
-        userAgent = parsed.solution.userAgent
-        issuedTo = proxyUrl
+        val key = keyOf(route)
+        clearances()[key] = StoredClearance(
+            host = hostname,
+            route = key,
+            cookie = parsed.solution.cookies.joinToString("; ") { "${it.name}=${it.value}" },
+            userAgent = parsed.solution.userAgent,
+            obtainedAt = clock.instant().toString(),
+        )
+        persist()
 
         log.info { "Clearance obtained for [${url.host}], carrying [${parsed.solution.cookies.size}] cookies." }
 
-        return@withLock cookie.isNotBlank()
+        return@withLock true
     }
+
+    private fun keyOf(route: String?): String = route?.ifBlank { null } ?: DIRECT_ROUTE
+
+    private fun isExpired(entry: StoredClearance): Boolean {
+        val obtainedAt = runCatching { Instant.parse(entry.obtainedAt) }.getOrNull() ?: return true
+        return Duration.between(obtainedAt, clock.instant()) > Duration.ofHours(clearanceMaxAgeHours.toLong())
+    }
+
+    private suspend fun clearances(): MutableMap<String, StoredClearance> {
+        held?.let { return it }
+
+        val loaded = ClearanceStore.read(storePath())
+            .filter { it.host == hostname && !isExpired(it) }
+            .associateBy { it.route }
+            .toMutableMap()
+
+        if (loaded.isNotEmpty()) {
+            log.info { "Reusing [${loaded.size}] stored clearances for [$hostname]." }
+        }
+
+        held = loaded
+        return loaded
+    }
+
+    private suspend fun persist() {
+        val path = storePath() ?: return
+        ClearanceStore.replace(path, hostname, clearances().values.toList())
+    }
+
+    private fun storePath(): Path? = clearanceFile.ifBlank { null }?.let { Path(it) }
 
     companion object {
         private val log by LoggerDelegate()
 
         private const val EMPTY_SOLVER = ""
+        private const val NO_FILE = ""
+        private const val DIRECT_ROUTE = "direct"
+        private const val DEFAULT_MAX_AGE_HOURS = 24
         private const val SOLVER_TIMEOUT = 120000
 
         /**
@@ -168,6 +221,55 @@ class CloudflareClearance(
         const val CONFIG_NAMESPACE = "modb.app.challenge"
     }
 }
+
+/**
+ * What a request has to present to pass the browser check.
+ * @since 1.0.0
+ * @property cookie Cookie header value.
+ * @property userAgent User agent the clearance was issued to. A clearance presented by a different agent is refused.
+ */
+data class Clearance(
+    val cookie: String,
+    val userAgent: String,
+)
+
+/**
+ * The clearance file is shared by every site, so writes go through one lock and replace only the
+ * writing site's entries.
+ */
+private object ClearanceStore {
+
+    private val lock = Mutex()
+
+    suspend fun read(path: Path?): List<StoredClearance> = lock.withLock { load(path) }
+
+    suspend fun replace(path: Path, host: String, entries: List<StoredClearance>) = lock.withLock {
+        val others = load(path).filter { it.host != host }
+        val temporary = path.resolveSibling("${path.fileName}.tmp")
+        temporary.writeText(Json.toJson(ClearanceFile(others + entries)))
+        Files.move(temporary, path, REPLACE_EXISTING, ATOMIC_MOVE)
+    }
+
+    private suspend fun load(path: Path?): List<StoredClearance> {
+        if (path == null || !path.exists()) {
+            return emptyList()
+        }
+
+        return runCatching { Json.parseJson<ClearanceFile>(path.readText())?.clearances }.getOrNull() ?: emptyList()
+    }
+}
+
+private data class ClearanceFile(
+    val clearances: List<StoredClearance> = emptyList(),
+)
+
+private data class StoredClearance(
+    val host: String,
+    val route: String,
+    val cookie: String,
+    val userAgent: String,
+    val obtainedAt: String,
+)
 
 private data class SolverResponse(
     val status: String,

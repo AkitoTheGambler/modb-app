@@ -8,13 +8,14 @@ import io.github.manamiproject.modb.core.logging.LoggerDelegate
 import java.net.URL
 
 /**
- * Presents a [CloudflareClearance] on every request and renews it when the site stops accepting it.
+ * Presents the [CloudflareClearance] held for the current route and obtains one only when the site
+ * actually challenges.
  *
- * Rendering a page in a browser costs seconds, so doing it per request would make a crawl of any
- * size impractical. Once a clearance exists, ordinary requests carrying it are answered normally,
- * and the browser is only needed again when it expires.
+ * Rendering a page in a browser costs seconds and, through a metered proxy, megabytes, so it is done
+ * only once a request has been refused. A route the site does not challenge never pays for a render,
+ * and a route rotated back to presents the clearance it earned before.
  * @since 1.0.0
- * @property clearance Holds the current cookie and user agent.
+ * @property clearance Holds the cookie and user agent of each route.
  * @property httpClient Performs the actual request. Must reach the site by the same route the
  * clearance was issued to.
  * @property currentProxy Route requests currently leave by.
@@ -32,31 +33,22 @@ class ClearanceHttpClient(
 
     override suspend fun get(url: URL, headers: Map<String, Collection<String>>): HttpResponse {
         var connectionChanges = 0
+        var renewedOnThisRoute = false
 
         while (true) {
-            // A connection which cannot obtain a clearance at all is not one a retry will fix. It is
-            // usually an address the site drops rather than challenges, and asking it again just
-            // spends another render on the same dead route.
-            if (!clearance.ensureIssuedTo(url, currentProxy())) {
-                if (connectionChanges++ >= maxConnectionChanges) {
-                    log.warn { "No clearance for [${url.host}] after [$connectionChanges] connections, giving the request up." }
-                    return httpClient.get(url, headers + clearanceHeaders())
-                }
-
-                log.info { "No clearance for [${url.host}] through [${currentProxy() ?: "this machine"}], changing connection." }
-                changeConnection()
-                continue
-            }
+            val route = currentProxy()
+            val held = clearance.heldFor(route)
 
             val response = try {
-                httpClient.get(url, headers + clearanceHeaders())
+                httpClient.get(url, headers + headersOf(held))
             } catch (e: Throwable) {
                 if (!e.isRouteFailure() || connectionChanges++ >= maxConnectionChanges) {
                     throw e
                 }
 
-                log.info { "Could not reach [${url.host}] through [${currentProxy() ?: "this machine"}]: [${e.message}], changing connection." }
+                log.info { "Could not reach [${url.host}] through [${route ?: "this machine"}]: [${e.message}], changing connection." }
                 changeConnection()
+                renewedOnThisRoute = false
                 continue
             }
 
@@ -64,20 +56,37 @@ class ClearanceHttpClient(
                 return response
             }
 
-            // The clearance presented here was issued to this very connection, so being challenged
-            // anyway says the address is no longer accepted rather than that the clearance aged out.
+            if (held != null) {
+                clearance.discard(route)
+            }
+
+            // The first challenge on a route is answered with a render. Being challenged again right
+            // after one says the address is no longer accepted rather than that a clearance aged out,
+            // and a route the solver cannot get through is usually one the site drops outright.
+            if (!renewedOnThisRoute) {
+                renewedOnThisRoute = true
+
+                if (clearance.refresh(url, route)) {
+                    continue
+                }
+
+                log.info { "No clearance for [${url.host}] through [${route ?: "this machine"}]." }
+            } else {
+                log.info { "[${url.host}] refused a clearance issued to [${route ?: "this machine"}]." }
+            }
+
             if (connectionChanges++ >= maxConnectionChanges) {
-                log.warn { "[${url.host}] still refuses a fresh clearance after [$connectionChanges] connections." }
+                log.warn { "[${url.host}] still refuses after [$connectionChanges] connections, giving the request up." }
                 return response
             }
 
-            log.info { "[${url.host}] refused a clearance issued to [${currentProxy() ?: "this machine"}], changing connection." }
             changeConnection()
+            renewedOnThisRoute = false
         }
     }
 
     override suspend fun post(url: URL, requestBody: RequestBody, headers: Map<String, Collection<String>>): HttpResponse {
-        return httpClient.post(url, requestBody, headers + clearanceHeaders())
+        return httpClient.post(url, requestBody, headers + headersOf(clearance.heldFor(currentProxy())))
     }
 
     override fun addRetryCases(vararg retryCases: RetryCase): HttpClient {
@@ -85,11 +94,11 @@ class ClearanceHttpClient(
         return this
     }
 
-    private fun clearanceHeaders(): Map<String, Collection<String>> = when {
-        clearance.cookie.isBlank() -> emptyMap()
+    private fun headersOf(held: Clearance?): Map<String, Collection<String>> = when (held) {
+        null -> emptyMap()
         else -> mapOf(
-            "Cookie" to listOf(clearance.cookie),
-            "User-Agent" to listOf(clearance.userAgent),
+            "Cookie" to listOf(held.cookie),
+            "User-Agent" to listOf(held.userAgent),
         )
     }
 

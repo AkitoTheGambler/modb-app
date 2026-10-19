@@ -32,7 +32,7 @@ object ClearanceHttpClients {
             val networkController = NetworkControllers.forHost(hostname, configRegistry)
 
             ClearanceHttpClient(
-                clearance = CloudflareClearance(configRegistry = configRegistry),
+                clearance = CloudflareClearance(configRegistry = configRegistry, hostname = hostname),
                 httpClient = ProxiedHttpClients.suspendable(configRegistry, hostname),
                 currentProxy = {
                     when {
