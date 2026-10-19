@@ -95,16 +95,32 @@ class DefaultMergeLockAccessor(
 
         log.debug { "Replacing merge lock entry [$oldUri] with [$newUri]" }
 
-        val updatedEntry = currentEntry.toMutableSet().apply {
-            remove(oldUri)
-            add(newUri)
-        }
+        writeAccess.withLock {
+            val replaced = currentEntry - oldUri + newUri
+            val otherEntry = mergeLocks[newUri.toString()]?.takeIf { it != currentEntry } ?: emptySet()
+            val otherSources = otherEntry - newUri
+            val sharesProvider = otherSources.any { other -> (replaced - newUri).any { it.host == other.host } }
 
-        currentEntry.forEach {
-            removeEntry(it)
-        }
+            // A provider which renames an entry can rename it to an id another lock already holds. The two locks name
+            // the same anime then, unless they disagree about a provider, in which case the renamed one keeps the id.
+            val (updatedEntry, remainder) = when {
+                otherEntry.isEmpty() -> replaced to emptySet()
+                sharesProvider -> {
+                    log.warn { "[$newUri] is already part of [$otherEntry], which disagrees with [$replaced] about a provider. Moving it." }
+                    replaced to otherSources
+                }
+                else -> {
+                    log.info { "[$newUri] is already part of [$otherEntry]. Joining it with [$replaced]." }
+                    replaced + otherEntry to emptySet()
+                }
+            }
 
-        addMergeLock(updatedEntry)
+            (currentEntry + otherEntry).forEach { mergeLocks.remove(it.toString()) }
+            updatedEntry.forEach { mergeLocks[it.toString()] = updatedEntry }
+            remainder.forEach { mergeLocks[it.toString()] = remainder }
+
+            saveToFile()
+        }
     }
 
     override suspend fun removeEntry(uri: URI) {

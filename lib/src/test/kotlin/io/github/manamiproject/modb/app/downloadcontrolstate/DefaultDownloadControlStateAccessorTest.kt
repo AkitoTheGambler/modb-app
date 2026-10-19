@@ -1672,11 +1672,7 @@ internal class DefaultDownloadControlStateAccessorTest {
         fun `overwrites existing dcs files`() {
             tempDirectory {
                 // given
-                val testMetaDataProviderConfig = object: MetaDataProviderConfig by TestMetaDataProviderConfig {
-                    override fun hostname(): Hostname = "example.org"
-                    override fun buildAnimeLink(id: AnimeId): URI = super.buildAnimeLink(id)
-                    override fun fileSuffix(): FileSuffix = "html"
-                }
+                val testMetaDataProviderConfig = AnilistConfig
 
                 val workingDir = tempDir.resolve("workingDir").createDirectory()
 
@@ -1692,8 +1688,9 @@ internal class DefaultDownloadControlStateAccessorTest {
                 }
 
                 val dcsSubDirectory = tempDir.resolve(testMetaDataProviderConfig.hostname()).createDirectory()
-                val oldFile = dcsSubDirectory.resolve("previous-id.$DOWNLOAD_CONTROL_STATE_FILE_SUFFIX").createFile()
-                "override with this".writeToFile(oldFile)
+                val oldFile = dcsSubDirectory.resolve("177191.$DOWNLOAD_CONTROL_STATE_FILE_SUFFIX")
+                createExpectedDcsEntry(TestAnimeRawObjects.AllPropertiesSet.serializedPrettyPrint)
+                    .writeToFile(oldFile)
                 val newFile = dcsSubDirectory.resolve("new-id.$DOWNLOAD_CONTROL_STATE_FILE_SUFFIX").createFile()
                 "to be overwritten".writeToFile(newFile)
 
@@ -1703,12 +1700,53 @@ internal class DefaultDownloadControlStateAccessorTest {
                 )
 
                 // when
-                downloadControlStateAccessor.changeId("previous-id", "new-id", testMetaDataProviderConfig)
+                downloadControlStateAccessor.changeId("177191", "new-id", testMetaDataProviderConfig)
 
                 // then
                 assertThat(oldFile.regularFileExists()).isFalse()
-                assertThat(newFile.regularFileExists()).isTrue()
-                assertThat(newFile.readFile()).isEqualTo("override with this")
+                assertThat(newFile.readFile()).doesNotContain("to be overwritten")
+                assertThat(newFile.readFile()).contains("https://anilist.co/anime/new-id")
+            }
+        }
+
+        @Test
+        fun `the renamed dcs file names the new id, so that it can be loaded again`() {
+            tempDirectory {
+                // given
+                val testMetaDataProviderConfig = AnilistConfig
+
+                val workingDir = tempDir.resolve("workingDir").createDirectory()
+
+                val testAppConfig = object: Config by TestAppConfig {
+                    override fun downloadControlStateDirectory(): Directory = tempDir
+                    override fun workingDir(metaDataProviderConfig: MetaDataProviderConfig): Directory = workingDir
+                    override fun canChangeAnimeIds(metaDataProviderConfig: MetaDataProviderConfig): Boolean = true
+                    override fun metaDataProviderConfigurations(): Set<MetaDataProviderConfig> = setOf(testMetaDataProviderConfig)
+                    override fun findMetaDataProviderConfig(host: Hostname): MetaDataProviderConfig = testMetaDataProviderConfig
+                }
+
+                val testMergeLockAccess = object : MergeLockAccessor by TestMergeLockAccessor {
+                    override suspend fun isPartOfMergeLock(uri: URI): Boolean = false
+                }
+
+                val dcsSubDirectory = tempDir.resolve(testMetaDataProviderConfig.hostname()).createDirectory()
+                createExpectedDcsEntry(TestAnimeRawObjects.AllPropertiesSet.serializedPrettyPrint)
+                    .writeToFile(dcsSubDirectory.resolve("177191.$DOWNLOAD_CONTROL_STATE_FILE_SUFFIX"))
+
+                DefaultDownloadControlStateAccessor(
+                    appConfig = testAppConfig,
+                    mergeLockAccess = testMergeLockAccess,
+                ).changeId("177191", "999999", testMetaDataProviderConfig)
+
+                // when
+                val restarted = DefaultDownloadControlStateAccessor(
+                    appConfig = testAppConfig,
+                    mergeLockAccess = testMergeLockAccess,
+                )
+
+                // then
+                assertThat(restarted.dcsEntryExists(testMetaDataProviderConfig, "999999")).isTrue()
+                assertThat(restarted.dcsEntry(testMetaDataProviderConfig, "999999").anime.sources).containsExactly(URI("https://anilist.co/anime/999999"))
             }
         }
 

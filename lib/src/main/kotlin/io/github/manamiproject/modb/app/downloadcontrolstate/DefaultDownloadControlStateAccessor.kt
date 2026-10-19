@@ -198,9 +198,24 @@ class DefaultDownloadControlStateAccessor(
         log.debug { "Renaming [*.$DOWNLOAD_CONTROL_STATE_FILE_SUFFIX] file from [$oldId.$DOWNLOAD_CONTROL_STATE_FILE_SUFFIX] to [$newId.$DOWNLOAD_CONTROL_STATE_FILE_SUFFIX]." }
 
         val newFile = file.parent.resolve("$newId.$DOWNLOAD_CONTROL_STATE_FILE_SUFFIX")
-        file.moveTo(newFile, true)
+        val oldUri = metaDataProviderConfig.buildAnimeLink(oldId)
+        val newUri = metaDataProviderConfig.buildAnimeLink(newId)
 
-        downloadControlStateEntries[metaDataProviderConfig]?.load()[oldId]?.let { entry ->
+        // The renamed file has to name the new id as well. A run which stops between the rename and the next update of
+        // the entry would otherwise leave a file which no later run can load.
+        val loadedEntries = downloadControlStateEntries[metaDataProviderConfig]
+        val entry = loadedEntries?.load()[oldId] ?: runCatching { Json.parseJson<DownloadControlStateEntry>(file.readFile()) }.getOrNull()
+
+        when (entry) {
+            null -> file.moveTo(newFile, true)
+            else -> {
+                entry.anime.addSources(newUri).removeSourceIf { it == oldUri }
+                Json.toJson(entry).writeToFile(newFile, true)
+                file.deleteIfExists()
+            }
+        }
+
+        if (loadedEntries != null && entry != null) {
             safelyStore(metaDataProviderConfig) {
                 it.toMutableMap().apply {
                     put(newId, entry)
@@ -209,9 +224,8 @@ class DefaultDownloadControlStateAccessor(
             }
         }
 
-        val oldUri = metaDataProviderConfig.buildAnimeLink(oldId)
         if (mergeLockAccess.isPartOfMergeLock(oldUri)) {
-            mergeLockAccess.replaceUri(oldUri, metaDataProviderConfig.buildAnimeLink(newId))
+            mergeLockAccess.replaceUri(oldUri, newUri)
         }
 
         log.debug { "Removing [*.$CONVERTED_FILE_SUFFIX] file." }

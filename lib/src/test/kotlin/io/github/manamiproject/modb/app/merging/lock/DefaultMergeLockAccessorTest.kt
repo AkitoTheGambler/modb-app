@@ -859,6 +859,62 @@ internal class DefaultMergeLockAccessorTest {
     inner class ReplaceUriTests {
 
         @Test
+        fun `joins the lock of the new uri when the new uri already belongs to another lock`() {
+            tempDirectory {
+                // given
+                val testAppConfig = object: Config by TestAppConfig {
+                    override fun downloadControlStateDirectory(): Directory = tempDir
+                }
+                val accessor = DefaultMergeLockAccessor(appConfig = testAppConfig)
+
+                val oldUri = URI("https://anime-planet.com/anime/sword-art-online-new")
+                val newUri = URI("https://anime-planet.com/anime/sword-art-online-movie-2-integral-domain")
+                accessor.addMergeLock(setOf(oldUri, URI("https://myanimelist.net/anime/53529"), URI("https://anilist.co/anime/156631")))
+                accessor.addMergeLock(setOf(newUri, URI("https://animenewsnetwork.com/encyclopedia/anime.php?id=40306")))
+
+                // when
+                accessor.replaceUri(oldUri, newUri)
+
+                // then
+                assertThat(accessor.getMergeLock(newUri)).containsExactlyInAnyOrder(
+                    newUri,
+                    URI("https://myanimelist.net/anime/53529"),
+                    URI("https://anilist.co/anime/156631"),
+                    URI("https://animenewsnetwork.com/encyclopedia/anime.php?id=40306"),
+                )
+                assertThat(accessor.isPartOfMergeLock(oldUri)).isFalse()
+                val reloaded = DefaultMergeLockAccessor(appConfig = testAppConfig)
+                assertThat(reloaded.getMergeLock(URI("https://animenewsnetwork.com/encyclopedia/anime.php?id=40306"))).contains(URI("https://myanimelist.net/anime/53529"))
+            }
+        }
+
+        @Test
+        fun `moves the new uri out of another lock which disagrees about a provider`() {
+            tempDirectory {
+                // given
+                val testAppConfig = object: Config by TestAppConfig {
+                    override fun downloadControlStateDirectory(): Directory = tempDir
+                }
+                val accessor = DefaultMergeLockAccessor(appConfig = testAppConfig)
+
+                val oldUri = URI("https://anime-planet.com/anime/old-slug")
+                val newUri = URI("https://anime-planet.com/anime/new-slug")
+                accessor.addMergeLock(setOf(oldUri, URI("https://myanimelist.net/anime/1")))
+                accessor.addMergeLock(setOf(newUri, URI("https://myanimelist.net/anime/2"), URI("https://kitsu.app/anime/2")))
+
+                // when
+                accessor.replaceUri(oldUri, newUri)
+
+                // then
+                assertThat(accessor.getMergeLock(newUri)).containsExactlyInAnyOrder(newUri, URI("https://myanimelist.net/anime/1"))
+                assertThat(accessor.getMergeLock(URI("https://myanimelist.net/anime/2"))).containsExactlyInAnyOrder(
+                    URI("https://myanimelist.net/anime/2"),
+                    URI("https://kitsu.app/anime/2"),
+                )
+            }
+        }
+
+        @Test
         fun `does nothing if the URI to be replaced doesn't exist`() {
             tempDirectory {
                 // given
