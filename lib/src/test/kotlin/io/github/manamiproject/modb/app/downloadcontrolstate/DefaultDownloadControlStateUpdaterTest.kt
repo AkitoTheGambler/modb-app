@@ -3,12 +3,15 @@ package io.github.manamiproject.modb.app.downloadcontrolstate
 import io.github.manamiproject.modb.anilist.AnilistConfig
 import io.github.manamiproject.modb.app.TestAppConfig
 import io.github.manamiproject.modb.app.TestConfigRegistry
+import io.github.manamiproject.modb.app.TestDeadEntriesAccessor
 import io.github.manamiproject.modb.app.TestDownloadControlStateAccessor
 import io.github.manamiproject.modb.app.TestMetaDataProviderConfig
 import io.github.manamiproject.modb.app.config.Config
 import io.github.manamiproject.modb.app.convfiles.CONVERTED_FILE_SUFFIX
+import io.github.manamiproject.modb.app.dataset.DeadEntriesAccessor
 import io.github.manamiproject.modb.app.minusWeeks
 import io.github.manamiproject.modb.core.config.AnimeId
+import io.github.manamiproject.modb.core.config.FileSuffix
 import io.github.manamiproject.modb.core.config.Hostname
 import io.github.manamiproject.modb.core.config.MetaDataProviderConfig
 import io.github.manamiproject.modb.core.extensions.Directory
@@ -234,13 +237,14 @@ internal class DefaultDownloadControlStateUpdaterTest {
         inner class UpdateChangedIdsTests {
 
             @Test
-            fun `throws exception if id changed although id change is not supported for this metadata provider`() {
+            fun `treats the old id as dead and keeps the anime under the new id if the provider doesn't support changing ids`() {
                 tempDirectory {
                     // given
                     val testConfig = object: MetaDataProviderConfig by TestMetaDataProviderConfig {
                         override fun hostname(): Hostname = "example.org"
                         override fun buildAnimeLink(id: AnimeId): URI = super.buildAnimeLink(id)
                         override fun extractAnimeId(uri: URI): AnimeId = super.extractAnimeId(uri)
+                        override fun fileSuffix(): FileSuffix = "html"
                     }
 
                     val rawdata = tempDir.resolve("rawdata").createDirectory()
@@ -251,6 +255,7 @@ internal class DefaultDownloadControlStateUpdaterTest {
                     )
                     val rawFile = rawdata.resolve("previous-test-id.$CONVERTED_FILE_SUFFIX").createFile()
                     Json.toJson(updatedAnime).writeToFile(rawFile)
+                    rawdata.resolve("previous-test-id.html").createFile()
 
                     val dcs = tempDir.resolve("dcs").createDirectory()
                     val initialAnime = AnimeRaw(
@@ -276,29 +281,124 @@ internal class DefaultDownloadControlStateUpdaterTest {
                         override fun canChangeAnimeIds(metaDataProviderConfig: MetaDataProviderConfig): Boolean = false
                     }
 
+                    val updated = mutableListOf<AnimeId>()
                     val testDownloadControlStateAccessor = object: DownloadControlStateAccessor by TestDownloadControlStateAccessor {
                     override suspend fun allDcsEntries(metaDataProviderConfig: MetaDataProviderConfig): List<DownloadControlStateEntry> = emptyList()
                         override fun downloadControlStateDirectory(metaDataProviderConfig: MetaDataProviderConfig): Directory = tempDir
                         override suspend fun dcsEntryExists(metaDataProviderConfig: MetaDataProviderConfig, animeId: AnimeId): Boolean = true
                         override suspend fun dcsEntry(metaDataProviderConfig: MetaDataProviderConfig, animeId: AnimeId): DownloadControlStateEntry = downloadControlStateEntry
-                        override suspend fun createOrUpdate(metaDataProviderConfig: MetaDataProviderConfig, animeId: AnimeId, downloadControlStateEntry: DownloadControlStateEntry): Boolean = false
-                        override suspend fun changeId(oldId: AnimeId, newId: AnimeId, metaDataProviderConfig: MetaDataProviderConfig): RegularFile {
-                            return dcsFile.parent.resolve("new-test-id.$DOWNLOAD_CONTROL_STATE_FILE_SUFFIX")
+                        override suspend fun createOrUpdate(metaDataProviderConfig: MetaDataProviderConfig, animeId: AnimeId, downloadControlStateEntry: DownloadControlStateEntry): Boolean {
+                            updated.add(animeId)
+                            return true
+                        }
+                    }
+
+                    val deadEntries = mutableListOf<AnimeId>()
+                    val testDeadEntriesAccessor = object: DeadEntriesAccessor by TestDeadEntriesAccessor {
+                        override suspend fun addDeadEntry(animeId: AnimeId, metaDataProviderConfig: MetaDataProviderConfig) {
+                            deadEntries.add(animeId)
                         }
                     }
 
                     val downloadControlStateUpdater = DefaultDownloadControlStateUpdater(
                         appConfig = testAppConfig,
                         downloadControlStateAccessor = testDownloadControlStateAccessor,
+                        deadEntriesAccessor = testDeadEntriesAccessor,
                     )
 
                     // when
-                    val result = exceptionExpected<IllegalStateException> {
-                        downloadControlStateUpdater.updateAll()
-                    }
+                    downloadControlStateUpdater.updateAll()
 
                     // then
-                    assertThat(result).hasMessage("Detected ID change from [previous-test-id] to [new-test-id] although [example.org] doesn't support changing IDs.")
+                    assertThat(deadEntries).containsExactly("previous-test-id")
+                    assertThat(updated).containsExactly("new-test-id")
+                    assertThat(rawdata.resolve("previous-test-id.$CONVERTED_FILE_SUFFIX")).doesNotExist()
+                    assertThat(rawdata.resolve("previous-test-id.html")).doesNotExist()
+                    assertThat(rawdata.resolve("new-test-id.$CONVERTED_FILE_SUFFIX")).exists()
+                }
+            }
+
+            @Test
+            fun `treats the old id as dead and drops the duplicate if the new id was fetched in the same run`() {
+                tempDirectory {
+                    // given
+                    val testConfig = object: MetaDataProviderConfig by TestMetaDataProviderConfig {
+                        override fun hostname(): Hostname = "example.org"
+                        override fun buildAnimeLink(id: AnimeId): URI = super.buildAnimeLink(id)
+                        override fun extractAnimeId(uri: URI): AnimeId = super.extractAnimeId(uri)
+                        override fun fileSuffix(): FileSuffix = "html"
+                    }
+
+                    val rawdata = tempDir.resolve("rawdata").createDirectory()
+                    val updatedAnime = AnimeRaw(
+                        _title = "Test",
+                        episodes = 12,
+                        _sources = hashSetOf(testConfig.buildAnimeLink("new-test-id"))
+                    )
+                    val rawFile = rawdata.resolve("previous-test-id.$CONVERTED_FILE_SUFFIX").createFile()
+                    Json.toJson(updatedAnime).writeToFile(rawFile)
+                    rawdata.resolve("previous-test-id.html").createFile()
+                    val newRawFile = rawdata.resolve("new-test-id.$CONVERTED_FILE_SUFFIX").createFile()
+                    Json.toJson(updatedAnime).writeToFile(newRawFile)
+
+                    val dcs = tempDir.resolve("dcs").createDirectory()
+                    val initialAnime = AnimeRaw(
+                        _title = "Test",
+                        _sources = hashSetOf(testConfig.buildAnimeLink("previous-test-id"))
+                    )
+
+                    val downloadControlStateEntry = DownloadControlStateEntry(
+                        _weeksWihoutChange = 2,
+                        _lastDownloaded = WeekOfYear.currentWeek().minusWeeks(4),
+                        _nextDownload = WeekOfYear.currentWeek(),
+                        _anime = initialAnime,
+                    )
+                    val metaDataProviderDcsDir = dcs.resolve(testConfig.hostname()).createDirectory()
+                    val dcsFile = metaDataProviderDcsDir.resolve("previous-test-id.$DOWNLOAD_CONTROL_STATE_FILE_SUFFIX").createFile()
+                    Json.toJson(downloadControlStateEntry).writeToFile(dcsFile)
+
+                    val testAppConfig = object: Config by TestAppConfig {
+                        override fun downloadControlStateDirectory(): Directory = dcs
+                        override fun metaDataProviderConfigurations(): Set<MetaDataProviderConfig> = setOf(testConfig)
+                        override fun workingDir(metaDataProviderConfig: MetaDataProviderConfig): Directory = rawdata
+                        override fun findMetaDataProviderConfig(host: Hostname): MetaDataProviderConfig = super.findMetaDataProviderConfig(host)
+                        override fun canChangeAnimeIds(metaDataProviderConfig: MetaDataProviderConfig): Boolean = false
+                    }
+
+                    val updated = mutableListOf<AnimeId>()
+                    val testDownloadControlStateAccessor = object: DownloadControlStateAccessor by TestDownloadControlStateAccessor {
+                    override suspend fun allDcsEntries(metaDataProviderConfig: MetaDataProviderConfig): List<DownloadControlStateEntry> = emptyList()
+                        override fun downloadControlStateDirectory(metaDataProviderConfig: MetaDataProviderConfig): Directory = tempDir
+                        override suspend fun dcsEntryExists(metaDataProviderConfig: MetaDataProviderConfig, animeId: AnimeId): Boolean = true
+                        override suspend fun dcsEntry(metaDataProviderConfig: MetaDataProviderConfig, animeId: AnimeId): DownloadControlStateEntry = downloadControlStateEntry
+                        override suspend fun createOrUpdate(metaDataProviderConfig: MetaDataProviderConfig, animeId: AnimeId, downloadControlStateEntry: DownloadControlStateEntry): Boolean {
+                            updated.add(animeId)
+                            return true
+                        }
+                    }
+
+                    val deadEntries = mutableListOf<AnimeId>()
+                    val testDeadEntriesAccessor = object: DeadEntriesAccessor by TestDeadEntriesAccessor {
+                        override suspend fun addDeadEntry(animeId: AnimeId, metaDataProviderConfig: MetaDataProviderConfig) {
+                            deadEntries.add(animeId)
+                        }
+                    }
+
+                    val downloadControlStateUpdater = DefaultDownloadControlStateUpdater(
+                        appConfig = testAppConfig,
+                        downloadControlStateAccessor = testDownloadControlStateAccessor,
+                        deadEntriesAccessor = testDeadEntriesAccessor,
+                    )
+
+                    // when
+                    downloadControlStateUpdater.updateAll()
+
+                    // then
+                    assertThat(deadEntries).containsExactly("previous-test-id")
+                    assertThat(updated).containsExactly("new-test-id")
+                    assertThat(rawdata.resolve("previous-test-id.$CONVERTED_FILE_SUFFIX")).doesNotExist()
+                    assertThat(rawdata.resolve("previous-test-id.html")).doesNotExist()
+                    assertThat(rawdata.resolve("new-test-id.$CONVERTED_FILE_SUFFIX")).exists()
                 }
             }
 

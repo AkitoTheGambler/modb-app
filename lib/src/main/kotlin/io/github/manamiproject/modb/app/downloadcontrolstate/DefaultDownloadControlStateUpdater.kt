@@ -3,6 +3,8 @@ package io.github.manamiproject.modb.app.downloadcontrolstate
 import io.github.manamiproject.modb.app.config.AppConfig
 import io.github.manamiproject.modb.app.config.Config
 import io.github.manamiproject.modb.app.convfiles.CONVERTED_FILE_SUFFIX
+import io.github.manamiproject.modb.app.dataset.DeadEntriesAccessor
+import io.github.manamiproject.modb.app.dataset.DefaultDeadEntriesAccessor
 import io.github.manamiproject.modb.core.config.ConfigRegistry
 import io.github.manamiproject.modb.core.config.DefaultConfigRegistry
 import io.github.manamiproject.modb.core.config.IntPropertyDelegate
@@ -12,6 +14,7 @@ import io.github.manamiproject.modb.core.coroutines.ModbDispatchers.LIMITED_FS
 import io.github.manamiproject.modb.core.extensions.fileName
 import io.github.manamiproject.modb.core.extensions.listRegularFiles
 import io.github.manamiproject.modb.core.extensions.readFile
+import io.github.manamiproject.modb.core.extensions.regularFileExists
 import io.github.manamiproject.modb.core.json.Json
 import io.github.manamiproject.modb.core.logging.LoggerDelegate
 import io.github.manamiproject.modb.core.anime.AnimeRaw
@@ -22,6 +25,8 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.io.path.deleteIfExists
+import kotlin.io.path.moveTo
 
 
 /**
@@ -40,10 +45,12 @@ import kotlinx.coroutines.withContext
  * @since 1.0.0
  * @property appConfig Application specific configuration. Uses [AppConfig] by default.
  * @property downloadControlStateAccessor Access to DCS files.
+ * @property deadEntriesAccessor Access to dead entries.
  */
 class DefaultDownloadControlStateUpdater(
     private val appConfig: Config = AppConfig.instance,
     private val downloadControlStateAccessor: DownloadControlStateAccessor = DefaultDownloadControlStateAccessor.instance,
+    private val deadEntriesAccessor: DeadEntriesAccessor = DefaultDeadEntriesAccessor.instance,
     configRegistry: ConfigRegistry = DefaultConfigRegistry.instance,
 ): DownloadControlStateUpdater {
 
@@ -61,10 +68,13 @@ class DefaultDownloadControlStateUpdater(
 
     override suspend fun updateAll() = withContext(LIMITED_FS) {
         val convFileAnimeToFilename = fetchAnimeFromConvFiles()
-        val animeToProvider = convFileAnimeToFilename.map { it.first to appConfig.findMetaDataProviderConfig(it.first.sources.first().host) }
+        val convFileAnime = convFileAnimeToFilename.map { it.first to appConfig.findMetaDataProviderConfig(it.first.sources.first().host) }
 
-        checkForExtractionProblems(animeToProvider)
-        updateChangedIds(convFileAnimeToFilename)
+        checkForExtractionProblems(convFileAnime)
+        val merged = updateChangedIds(convFileAnimeToFilename)
+        val animeToProvider = convFileAnimeToFilename.zip(convFileAnime)
+            .filterNot { (convFile, _) -> convFile in merged }
+            .map { it.second }
 
         animeToProvider.map { (anime, metaDataProviderConfig) ->
             launch { handleUpdate(anime, metaDataProviderConfig) }
@@ -175,19 +185,49 @@ class DefaultDownloadControlStateUpdater(
         }
     }
 
-    private suspend fun updateChangedIds(convFileAnimeToFilename: List<Pair<AnimeRaw, String>>) {
+    /**
+     * A provider which doesn't change IDs can still merge two entries and serve the same page under both. The old ID is
+     * then treated as dead. Its anime is kept under the new ID, unless the new ID was fetched in the same run.
+     * @return Conv files which are duplicates of another conv file and must not update a DCS entry.
+     */
+    private suspend fun updateChangedIds(convFileAnimeToFilename: List<Pair<AnimeRaw, String>>): Set<Pair<AnimeRaw, String>> {
         log.info { "Checking if IDs have changed." }
 
-        convFileAnimeToFilename.forEach { (anime, fileName) ->
+        val duplicates = mutableSetOf<Pair<AnimeRaw, String>>()
+
+        convFileAnimeToFilename.forEach { convFile ->
+            val (anime, fileName) = convFile
             val metaDataProviderConfig = appConfig.findMetaDataProviderConfig(anime.sources.first().host)
             val fileId = fileName.removeSuffix(".$CONVERTED_FILE_SUFFIX")
             val animeId = metaDataProviderConfig.extractAnimeId(anime.sources.first())
 
-            if (animeId != fileId) {
-                check(appConfig.canChangeAnimeIds(metaDataProviderConfig)) { "Detected ID change from [$fileId] to [$animeId] although [${metaDataProviderConfig.hostname()}] doesn't support changing IDs." }
-                downloadControlStateAccessor.changeId(fileId, animeId, metaDataProviderConfig)
+            if (animeId == fileId) {
+                return@forEach
             }
+
+            if (appConfig.canChangeAnimeIds(metaDataProviderConfig)) {
+                downloadControlStateAccessor.changeId(fileId, animeId, metaDataProviderConfig)
+                return@forEach
+            }
+
+            log.warn { "[${metaDataProviderConfig.hostname()}] serves [$fileId] as [$animeId]. Treating [$fileId] as dead." }
+            deadEntriesAccessor.addDeadEntry(fileId, metaDataProviderConfig)
+
+            val workingDir = appConfig.workingDir(metaDataProviderConfig)
+            val oldConvFile = workingDir.resolve(fileName)
+            val newConvFile = workingDir.resolve("$animeId.$CONVERTED_FILE_SUFFIX")
+
+            if (newConvFile.regularFileExists()) {
+                duplicates.add(convFile)
+                oldConvFile.deleteIfExists()
+            } else {
+                oldConvFile.moveTo(newConvFile)
+            }
+
+            workingDir.resolve("$fileId.${metaDataProviderConfig.fileSuffix()}").deleteIfExists()
         }
+
+        return duplicates
     }
 
     private suspend fun handleUpdate(anime: AnimeRaw, metaDataProviderConfig: MetaDataProviderConfig) {
