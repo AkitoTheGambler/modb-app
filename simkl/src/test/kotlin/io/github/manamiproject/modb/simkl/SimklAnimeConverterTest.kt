@@ -1027,6 +1027,28 @@ internal class SimklAnimeConverterTest {
                 assertThat(result.scores).isEmpty()
             }
         }
+
+        @Test
+        fun `returns NoMetaDataProviderScore if the score is outside of the rating range`() {
+            runTest {
+                // given
+                val testSimklConfig = object : MetaDataProviderConfig by TestMetaDataProviderConfig {
+                    override fun hostname(): Hostname = SimklConfig.hostname()
+                    override fun buildAnimeLink(id: AnimeId): URI = SimklConfig.buildAnimeLink(id)
+                    override fun fileSuffix(): FileSuffix = SimklConfig.fileSuffix()
+                }
+
+                val converter = SimklAnimeConverter(testSimklConfig)
+
+                val testFile = loadTestResource<String>("SimklAnimeConverterTest/scores/out_of_range.html")
+
+                // when
+                val result = converter.convert(testFile)
+
+                // then
+                assertThat(result.scores).isEmpty()
+            }
+        }
     }
 
     @Nested

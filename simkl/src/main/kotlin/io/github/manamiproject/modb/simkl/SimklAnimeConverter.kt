@@ -307,6 +307,10 @@ public class SimklAnimeConverter(
         val bestRating = data.double("bestRating")
         val worstRating = data.double("worstRating")
 
+        if (rawScore !in worstRating..bestRating) {
+            return NoMetaDataProviderScore
+        }
+
         return MetaDataProviderScoreValue(
             hostname = metaDataProviderConfig.hostname(),
             value = rawScore,

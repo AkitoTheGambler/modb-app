@@ -53,6 +53,7 @@ private val files = mapOf(
     "SimklAnimeConverterTest/relatedAnime/directly_and_indirectly_related.html" to "41586",
 
     "SimklAnimeConverterTest/scores/no-score.html" to "40239",
+    "SimklAnimeConverterTest/scores/out_of_range.html" to "38138",
     "SimklAnimeConverterTest/scores/score.html" to "40190",
 
     "SimklAnimeConverterTest/sources/38399_movie.html" to "38399",
