@@ -87,7 +87,7 @@ class DefaultMergingService(
             runThrough++
         }
 
-        return goldenRecordAccessor.allEntries()
+        return goldenRecordAccessor.allEntries().map { CommaSplitSynonyms.dropPieces(it) }
     }
 
     private fun sortMetaDataProvidersByNumberOfAnime(unmergedAnime: List<AnimeRaw>): List<MetaDataProviderConfig> {
