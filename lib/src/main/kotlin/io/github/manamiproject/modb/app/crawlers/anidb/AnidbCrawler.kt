@@ -40,7 +40,8 @@ import kotlin.time.toDuration
 /**
  * Implementation of [Crawler] for `anidb.net`.
  * Uses [IntegerBasedIdRangeSelector] to determine which data to download.
- * Includes a hard coded random waiting time to reduce pressure on the metadata provider.
+ * Waits a random time between downloads and can move to another connection every few pages, both to reduce pressure
+ * on the metadata provider.
  * @since 1.0.0
  * @property appConfig Application specific configuration. Uses [AppConfig] by default.
  * @property metaDataProviderConfig Configuration for a specific metadata provider.
@@ -50,6 +51,9 @@ import kotlin.time.toDuration
  * @property downloader Downloader for a specific metadata provider.
  * @property networkController Changes the connection requests leave through.
  * @property maxConnectionChanges Connections tried in a row before a refusal is treated as final.
+ * @property minWaitInMilliseconds Shortest wait before each download.
+ * @property maxWaitInMilliseconds Longest wait before each download.
+ * @property pagesPerConnection Downloads made through one connection before moving to the next. `0` stays on it.
  */
 class AnidbCrawler(
     private val appConfig: Config = AppConfig.instance,
@@ -81,6 +85,24 @@ class AnidbCrawler(
         configRegistry = configRegistry,
         namespace = CONFIG_NAMESPACE,
         default = DEFAULT_ROUTE_FAILURE_WAIT_IN_SECONDS,
+    )
+
+    private val minWaitInMilliseconds: Int by IntPropertyDelegate(
+        configRegistry = configRegistry,
+        namespace = CONFIG_NAMESPACE,
+        default = DEFAULT_MIN_WAIT_IN_MILLISECONDS,
+    )
+
+    private val maxWaitInMilliseconds: Int by IntPropertyDelegate(
+        configRegistry = configRegistry,
+        namespace = CONFIG_NAMESPACE,
+        default = DEFAULT_MAX_WAIT_IN_MILLISECONDS,
+    )
+
+    private val pagesPerConnection: Int by IntPropertyDelegate(
+        configRegistry = configRegistry,
+        namespace = CONFIG_NAMESPACE,
+        default = DEFAULT_PAGES_PER_CONNECTION,
     )
 
     init {
@@ -119,6 +141,12 @@ class AnidbCrawler(
     private suspend fun startDownload(idDownloadList: List<Int>) = repeat(idDownloadList.size) { index ->
         val animeId = idDownloadList[index]
         wait()
+
+        // A single address serving page after page is what anidb's anti-leech protection bans.
+        if (pagesPerConnection > 0 && index > 0 && index % pagesPerConnection == 0) {
+            log.info { "Moving [${metaDataProviderConfig.hostname()}] to the next connection after [$pagesPerConnection] pages." }
+            networkController.restartAsync().await()
+        }
 
         log.debug { "Downloading ${index+1}/${idDownloadList.size}: [anidbId=$animeId]" }
 
@@ -168,7 +196,10 @@ class AnidbCrawler(
     @KoverIgnore
     private suspend fun wait() {
         excludeFromTestContext(metaDataProviderConfig) {
-            delay(random(1500, 2500).toDuration(MILLISECONDS))
+            val shortest = minWaitInMilliseconds.coerceAtLeast(0)
+            val longest = maxWaitInMilliseconds.coerceAtLeast(shortest)
+            val waitTime = if (longest > shortest) random(shortest, longest) else shortest.toLong()
+            delay(waitTime.toDuration(MILLISECONDS))
         }
     }
 
@@ -177,6 +208,9 @@ class AnidbCrawler(
 
         private const val DEFAULT_MAX_CONNECTION_CHANGES = 5
         private const val DEFAULT_ROUTE_FAILURE_WAIT_IN_SECONDS = 5
+        private const val DEFAULT_MIN_WAIT_IN_MILLISECONDS = 1500
+        private const val DEFAULT_MAX_WAIT_IN_MILLISECONDS = 2500
+        private const val DEFAULT_PAGES_PER_CONNECTION = 0
 
         /**
          * Prefix of the properties read by this class.

@@ -10,6 +10,7 @@ import io.github.manamiproject.modb.app.crawlers.anidb.AnidbCrawler.Companion.AN
 import io.github.manamiproject.modb.app.dataset.DeadEntriesAccessor
 import io.github.manamiproject.modb.app.network.NetworkController
 import io.github.manamiproject.modb.core.config.AnimeId
+import io.github.manamiproject.modb.core.config.ConfigRegistry
 import io.github.manamiproject.modb.core.config.MetaDataProviderConfig
 import io.github.manamiproject.modb.core.coroutines.ModbDispatchers.LIMITED_CPU
 import io.github.manamiproject.modb.core.downloader.Downloader
@@ -539,6 +540,78 @@ internal class AnidbCrawlerTest {
                 assertThat(invocations).containsExactlyInAnyOrder(
                     "1000",
                 )
+            }
+        }
+    }
+
+    @Nested
+    inner class PagesPerConnectionTests {
+
+        private fun crawlerWith(tempDir: Directory, pagesPerConnection: Int?, ids: List<Int>, onRestart: () -> Unit): AnidbCrawler {
+            val testMetaDataProviderConfig = object: MetaDataProviderConfig by AnidbConfig {
+                override fun isTestContext(): Boolean = true
+            }
+            val testAppConfig = object : Config by TestAppConfig {
+                override fun workingDir(metaDataProviderConfig: MetaDataProviderConfig): Directory = tempDir
+            }
+            val testIdRangeSelector = object: IdRangeSelector<Int> {
+                override suspend fun idDownloadList(): List<Int> = ids
+            }
+            val testNetworkController = object: NetworkController by TestNetworkController {
+                override suspend fun restartAsync(): Deferred<Boolean> = withContext(LIMITED_CPU) {
+                    onRestart()
+                    return@withContext async { true }
+                }
+            }
+            val testAnimeDownloader = object: Downloader by TestDownloader {
+                override suspend fun download(id: AnimeId, onDeadEntry: suspend (AnimeId) -> Unit): String = "content $id"
+            }
+            val testConfigRegistry = object: ConfigRegistry by TestConfigRegistry {
+                override fun int(key: String): Int? = when (key) {
+                    "modb.anidb.crawler.pagesPerConnection" -> pagesPerConnection
+                    else -> null
+                }
+            }
+
+            return AnidbCrawler(
+                appConfig = testAppConfig,
+                metaDataProviderConfig = testMetaDataProviderConfig,
+                downloader = testAnimeDownloader,
+                deadEntriesAccess = TestDeadEntriesAccessor,
+                idRangeSelector = testIdRangeSelector,
+                networkController = testNetworkController,
+                configRegistry = testConfigRegistry,
+            )
+        }
+
+        @Test
+        fun `moves to the next connection after the configured number of pages`() {
+            tempDirectory {
+                // given
+                var restarts = 0
+                val crawler = crawlerWith(tempDir, 2, listOf(1, 2, 3, 4, 5)) { restarts++ }
+
+                // when
+                crawler.start()
+
+                // then
+                assertThat(restarts).isEqualTo(2)
+                assertThat(tempDir.listDirectoryEntries()).hasSize(5)
+            }
+        }
+
+        @Test
+        fun `stays on one connection by default`() {
+            tempDirectory {
+                // given
+                var restarts = 0
+                val crawler = crawlerWith(tempDir, null, listOf(1, 2, 3, 4, 5)) { restarts++ }
+
+                // when
+                crawler.start()
+
+                // then
+                assertThat(restarts).isZero()
             }
         }
     }
