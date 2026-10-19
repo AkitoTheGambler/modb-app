@@ -30,7 +30,7 @@ class AnidbHighestIdDetector(
     private val metaDataProviderConfig: MetaDataProviderConfig = AnidbHighestIdDetectorConfig,
     private val httpClient: HttpClient = SuspendableHttpClient(),
     private val extractor: DataExtractor = XmlDataExtractor,
-    private val networkController: NetworkController = NetworkControllers.forDeployment(),
+    private val networkController: NetworkController = NetworkControllers.forDeployment(hostname = metaDataProviderConfig.hostname()),
 ): HighestIdDetector {
 
     init {

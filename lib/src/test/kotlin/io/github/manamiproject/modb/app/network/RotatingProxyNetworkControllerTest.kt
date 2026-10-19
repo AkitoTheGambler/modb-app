@@ -114,6 +114,52 @@ internal class RotatingProxyNetworkControllerTest {
     }
 
     @Nested
+    inner class RouteTests {
+
+        @Test
+        fun `rotates through the given route instead of the configured pool`() {
+            runBlocking {
+                // given
+                val controller = RotatingProxyNetworkController(
+                    appConfig = fixedClockConfig(),
+                    configRegistry = poolOf("127.0.0.1:1111"),
+                    cooldown = 0,
+                    route = listOf("127.0.0.1:3333"),
+                )
+
+                // when
+                val result = controller.currentProxy()
+
+                // then
+                assertThat(result.address().toString()).endsWith(":3333")
+            }
+        }
+
+        @Test
+        fun `direct leaves without a proxy`() {
+            runBlocking {
+                // given
+                val controller = RotatingProxyNetworkController(
+                    appConfig = fixedClockConfig(),
+                    configRegistry = poolOf(),
+                    cooldown = 0,
+                    route = listOf("direct", "127.0.0.1:1111"),
+                )
+
+                // when
+                val first = controller.currentProxy()
+                controller.restartAsync().await()
+                val second = controller.currentProxy()
+
+                // then
+                assertThat(controller.hasProxies()).isTrue()
+                assertThat(first).isEqualTo(Proxy.NO_PROXY)
+                assertThat(second.address().toString()).endsWith(":1111")
+            }
+        }
+    }
+
+    @Nested
     inner class EgressTests {
 
         @Test

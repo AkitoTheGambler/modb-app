@@ -33,13 +33,15 @@ import kotlin.time.toDuration
  * returns the same address, so this implementation moves the exit point instead of the interface.
  *
  * Proxies are configured as a list under `modb.app.network.proxies`. Entries are either `host:port`,
- * which is treated as HTTP, or a URI carrying the scheme, for example `socks5://host:1080`.
+ * which is treated as HTTP, or a URI carrying the scheme, for example `socks5://host:1080`. The entry
+ * `direct` stands for leaving without a proxy.
  * @since 1.0.0
  * @property appConfig Application specific configuration. Uses [AppConfig] by default.
  * @property configRegistry Source of the proxy pool definition.
  * @property timeRangeForMaxRestarts Time range in seconds in which the number of switches defined by [maxNumberOfRestarts] is allowed.
  * @property maxNumberOfRestarts Maximum number of switches allowed within [timeRangeForMaxRestarts].
  * @property cooldown Time in seconds to wait after every proxy of the pool has been used once.
+ * @property route Pool to rotate through instead of the configured one, for a site routed on its own.
  * @throws TooManyRestartsException if the number of switches within [timeRangeForMaxRestarts] exceeds [maxNumberOfRestarts].
  */
 class RotatingProxyNetworkController(
@@ -48,6 +50,7 @@ class RotatingProxyNetworkController(
     private val timeRangeForMaxRestarts: Seconds = 600,
     private val maxNumberOfRestarts: Int = timeRangeForMaxRestarts + timeRangeForMaxRestarts / 2,
     private val cooldown: Seconds = 60,
+    private val route: List<String>? = null,
 ): NetworkController {
 
     private val proxies: List<String> by ListPropertyDelegate(
@@ -56,8 +59,11 @@ class RotatingProxyNetworkController(
         default = emptyList(),
     )
 
+    private val definitions: List<String>
+        get() = route ?: proxies
+
     private val pool: List<Proxy> by lazy {
-        val parsed = proxies.map { toProxy(it) }
+        val parsed = definitions.map { toProxy(it) }
         check(parsed.isNotEmpty()) { "No proxies configured. Set [$CONFIG_NAMESPACE.proxies]." }
         log.info { "Proxy pool initialized with [${parsed.size}] entries." }
         parsed
@@ -73,7 +79,7 @@ class RotatingProxyNetworkController(
      * @since 1.0.0
      * @return `true` if at least one proxy is configured.
      */
-    fun hasProxies(): Boolean = proxies.isNotEmpty()
+    fun hasProxies(): Boolean = definitions.isNotEmpty()
 
     /**
      * The proxy that requests are currently supposed to go through.
@@ -102,7 +108,7 @@ class RotatingProxyNetworkController(
                     delay(cooldown.toDuration(DurationUnit.SECONDS))
                 }
 
-                log.info { "Switching outgoing connection from [${previous.address()}] to [${pool[currentIndex].address()}]." }
+                log.info { "Switching outgoing connection from [${describe(previous)}] to [${describe(pool[currentIndex])}]." }
 
                 isNetworkActive = true
                 return@async true
@@ -134,7 +140,13 @@ class RotatingProxyNetworkController(
         throw TooManyRestartsException(maxNumberOfRestarts, timeRangeForMaxRestarts)
     }
 
+    private fun describe(proxy: Proxy): String = proxy.address()?.toString() ?: DIRECT
+
     private fun toProxy(definition: String): Proxy {
+        if (definition.trim().equals(DIRECT, ignoreCase = true)) {
+            return Proxy.NO_PROXY
+        }
+
         val uri = when {
             definition.contains("://") -> URI(definition)
             else -> URI("http://$definition")
@@ -159,6 +171,12 @@ class RotatingProxyNetworkController(
          * @since 1.0.0
          */
         const val CONFIG_NAMESPACE = "modb.app.network"
+
+        /**
+         * Pool entry for leaving without a proxy.
+         * @since 1.0.0
+         */
+        const val DIRECT = "direct"
 
         /**
          * Singleton of [RotatingProxyNetworkController].

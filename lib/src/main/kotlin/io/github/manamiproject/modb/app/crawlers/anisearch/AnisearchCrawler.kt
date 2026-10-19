@@ -64,7 +64,7 @@ class AnisearchCrawler(
     // anisearch refuses connections from hosted networks, so requests have to leave through the
     // proxy pool where one is configured. Without it the crawler reaches the address and is turned
     // away at the socket, which reads as an entry that cannot be downloaded.
-    private val httpClient: HttpClient = ProxiedHttpClients.suspendable(),
+    private val httpClient: HttpClient = ProxiedHttpClients.suspendable(hostname = metaDataProviderConfig.hostname()),
     private val downloader: Downloader = FaultTolerantDownloader(
         downloader = AnisearchDownloader(
         metaDataProviderConfig = metaDataProviderConfig,
@@ -72,7 +72,7 @@ class AnisearchCrawler(
     ),
         hostname = metaDataProviderConfig.hostname(),
     ),
-    private val networkController: NetworkController = NetworkControllers.forDeployment(),
+    private val networkController: NetworkController = NetworkControllers.forDeployment(hostname = metaDataProviderConfig.hostname()),
 ): Crawler {
 
     init {

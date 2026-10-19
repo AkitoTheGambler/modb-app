@@ -20,6 +20,7 @@ object NetworkControllers {
     private val log by LoggerDelegate()
 
     private val rotatingControllers = mutableMapOf<ConfigRegistry, RotatingProxyNetworkController>()
+    private val routedControllers = mutableMapOf<Pair<ConfigRegistry, String>, RotatingProxyNetworkController>()
 
     /**
      * Returns the one rotating controller belonging to a configuration.
@@ -39,13 +40,62 @@ object NetworkControllers {
     }
 
     /**
+     * Returns the rotating controller for a site.
+     *
+     * A site listed under `modb.app.network.routes` rotates through its own pool, so a site which can
+     * be reached for free is not sent through a paid one. Every other site shares [rotating].
+     * @since 1.0.0
+     * @param hostname Site the traffic is for.
+     * @param configRegistry Source of the proxy pool and route definitions.
+     * @return The controller for this site, created once.
+     */
+    fun forHost(hostname: String, configRegistry: ConfigRegistry = DefaultConfigRegistry.instance): RotatingProxyNetworkController {
+        val route = routeFor(hostname, configRegistry) ?: return rotating(configRegistry)
+
+        return synchronized(routedControllers) {
+            routedControllers.getOrPut(configRegistry to hostname) {
+                log.info { "Routing [$hostname] through its own pool of [${route.size}] entries." }
+                RotatingProxyNetworkController(configRegistry = configRegistry, route = route)
+            }
+        }
+    }
+
+    /**
+     * Reads the pool configured for a site.
+     *
+     * Each entry of `modb.app.network.routes` reads `hostname = entry, entry, ...`. An entry is a
+     * proxy, `direct` for leaving without one, or `pool` for every proxy of `modb.app.network.proxies`
+     * in its configured order, which lets a free route fall back to the paid pool.
+     * @since 1.0.0
+     * @param hostname Site to look up.
+     * @param configRegistry Source of the route definitions.
+     * @return The pool for this site or `null` if it has no route of its own.
+     */
+    fun routeFor(hostname: String, configRegistry: ConfigRegistry = DefaultConfigRegistry.instance): List<String>? {
+        val routes = configRegistry.list<String>("$CONFIG_NAMESPACE.$ROUTES") ?: return null
+        val definition = routes.firstOrNull { it.substringBefore("=").trim().equals(hostname, ignoreCase = true) } ?: return null
+        require(definition.contains("=")) { "Route [$definition] must read [hostname = entry, entry, ...]." }
+
+        val pool = configRegistry.list<String>("$CONFIG_NAMESPACE.$PROXIES") ?: emptyList()
+        val entries = definition.substringAfter("=")
+            .split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .flatMap { if (it.equals(POOL, ignoreCase = true)) pool else listOf(it) }
+
+        require(entries.isNotEmpty()) { "Route for [$hostname] names no entries." }
+        return entries
+    }
+
+    /**
      * @since 1.0.0
      * @param configRegistry Source of the proxy pool definition.
+     * @param hostname Site the controller is for, so a site with a route of its own rotates through it.
      * @return A controller which can actually change the outgoing address here, or one which admits
      * it cannot.
      */
-    fun forDeployment(configRegistry: ConfigRegistry = DefaultConfigRegistry.instance): NetworkController {
-        val rotating = rotating(configRegistry)
+    fun forDeployment(configRegistry: ConfigRegistry = DefaultConfigRegistry.instance, hostname: String? = null): NetworkController {
+        val rotating = hostname?.let { forHost(it, configRegistry) } ?: rotating(configRegistry)
 
         return when {
             rotating.hasProxies() -> rotating
@@ -63,6 +113,11 @@ object NetworkControllers {
     // The original design changes address by restarting the device, which only works where ifconfig
     // exists and the connection hands out a new address afterwards. That is a property of the
     // machine, so ask it rather than assume either way.
+    private const val CONFIG_NAMESPACE = RotatingProxyNetworkController.CONFIG_NAMESPACE
+    private const val ROUTES = "routes"
+    private const val PROXIES = "proxies"
+    private const val POOL = "pool"
+
     private fun canRestartNetworkDevice(): Boolean = try {
         ProcessBuilder("ifconfig").redirectErrorStream(true).start().waitFor() == 0
     } catch (e: Exception) {

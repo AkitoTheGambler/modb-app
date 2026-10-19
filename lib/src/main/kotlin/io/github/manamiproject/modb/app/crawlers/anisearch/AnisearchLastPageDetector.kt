@@ -26,7 +26,7 @@ import java.net.UnknownHostException
 class AnisearchLastPageDetector(
     private val metaDataProviderConfig: MetaDataProviderConfig = AnisearchLastPageDetectorConfig,
     private val httpClient: HttpClient = SuspendableHttpClient(),
-    private val networkController: NetworkController = NetworkControllers.forDeployment(),
+    private val networkController: NetworkController = NetworkControllers.forDeployment(hostname = metaDataProviderConfig.hostname()),
     private val extractor: DataExtractor = XmlDataExtractor,
 ): HighestIdDetector {
 

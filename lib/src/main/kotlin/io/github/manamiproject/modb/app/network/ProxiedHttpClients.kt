@@ -20,11 +20,12 @@ object ProxiedHttpClients {
     /**
      * @since 1.0.0
      * @param configRegistry Source of the proxy pool definition.
+     * @param hostname Site the client is for, so a site with a route of its own leaves through it.
      * @return A client which routes through the configured proxy pool, or a direct one when no pool
      * is configured.
      */
-    fun suspendable(configRegistry: ConfigRegistry = DefaultConfigRegistry.instance): HttpClient {
-        val networkController = NetworkControllers.rotating(configRegistry)
+    fun suspendable(configRegistry: ConfigRegistry = DefaultConfigRegistry.instance, hostname: String? = null): HttpClient {
+        val networkController = hostname?.let { NetworkControllers.forHost(it, configRegistry) } ?: NetworkControllers.rotating(configRegistry)
 
         return when {
             networkController.hasProxies() -> {

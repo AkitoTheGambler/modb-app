@@ -42,7 +42,7 @@ class AnisearchPaginationIdRangeSelector(
     private val metaDataProviderConfig: MetaDataProviderConfig,
     private val paginationIdRangeSelectorConfig: MetaDataProviderConfig = AnisearchPaginationIdRangeSelectorConfig,
     private val httpClient: HttpClient = SuspendableHttpClient(),
-    private val networkController: NetworkController = NetworkControllers.forDeployment(),
+    private val networkController: NetworkController = NetworkControllers.forDeployment(hostname = metaDataProviderConfig.hostname()),
     private val extractor: DataExtractor = XmlDataExtractor,
     private val downloadControlStateScheduler: DownloadControlStateScheduler = DefaultDownloadControlStateScheduler.instance,
     private val alreadyDownloadedIdsFinder: AlreadyDownloadedIdsFinder = DefaultAlreadyDownloadedIdsFinder.instance,

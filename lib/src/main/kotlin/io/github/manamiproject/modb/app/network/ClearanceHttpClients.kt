@@ -29,11 +29,11 @@ object ClearanceHttpClients {
         configRegistry: ConfigRegistry = DefaultConfigRegistry.instance,
     ): HttpClient = synchronized(clients) {
         clients.getOrPut(hostname) {
-            val networkController = NetworkControllers.rotating(configRegistry)
+            val networkController = NetworkControllers.forHost(hostname, configRegistry)
 
             ClearanceHttpClient(
                 clearance = CloudflareClearance(configRegistry = configRegistry),
-                httpClient = ProxiedHttpClients.suspendable(configRegistry),
+                httpClient = ProxiedHttpClients.suspendable(configRegistry, hostname),
                 currentProxy = {
                     when {
                         // Built by hand from host and port: an InetSocketAddress renders as

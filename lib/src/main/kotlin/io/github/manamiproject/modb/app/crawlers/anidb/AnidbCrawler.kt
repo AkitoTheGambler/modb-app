@@ -67,7 +67,7 @@ class AnidbCrawler(
         // would burn the run's remaining entries against an address anidb has already refused.
         isHandledByCaller = { it is CrawlerDetectedException },
     ),
-    private val networkController: NetworkController = NetworkControllers.forDeployment(),
+    private val networkController: NetworkController = NetworkControllers.forDeployment(hostname = metaDataProviderConfig.hostname()),
     configRegistry: ConfigRegistry = DefaultConfigRegistry.instance,
 ): Crawler {
 
