@@ -98,7 +98,8 @@ public class JavaProcessBuilder(
             }
 
             when {
-                e.cause?.message == "error=2, No such file or directory" -> throw CommandNotFoundException(commandName)
+                // The wording depends on the JDK, e.g. "error=2, No such file or directory" or "Exec failed, error: 2 (No such file or directory)"
+                e.cause?.message?.contains("No such file or directory") == true -> throw CommandNotFoundException(commandName)
                 e.cause?.message?.contains("permission denied", false) == true -> throw PermissionDeniedException(commandName)
                 else -> throw e
             }
