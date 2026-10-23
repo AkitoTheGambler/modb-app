@@ -1920,4 +1920,4 @@ internal class AnimenewsnetworkAnimeConverterTest {
             }
         }
     }
-}
+}

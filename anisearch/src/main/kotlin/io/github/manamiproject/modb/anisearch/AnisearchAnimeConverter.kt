@@ -326,4 +326,4 @@ public class AnisearchAnimeConverter(
         private const val DEFAULT_IMAGE = "https://cdn.anisearch.com/images/anime/cover/0_600.webp"
         private const val DEFAULT_THUMBNAIL = "https://cdn.anisearch.com/images/anime/cover/0_300.webp"
     }
-}
+}

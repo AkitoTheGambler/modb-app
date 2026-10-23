@@ -318,4 +318,4 @@ public class AnimePlanetAnimeConverter(
          */
         public val instance: AnimePlanetAnimeConverter by lazy { AnimePlanetAnimeConverter() }
     }
-}
+}

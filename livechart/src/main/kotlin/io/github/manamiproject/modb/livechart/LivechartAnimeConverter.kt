@@ -334,4 +334,4 @@ public class LivechartAnimeConverter(
          */
         public val instance: LivechartAnimeConverter by lazy { LivechartAnimeConverter() }
     }
-}
+}

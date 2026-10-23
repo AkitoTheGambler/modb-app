@@ -824,4 +824,4 @@ internal class DefaultMatchingProbabilityCalculatorTest {
             }
         }
     }
-}
+}

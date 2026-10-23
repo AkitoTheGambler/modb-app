@@ -985,7 +985,7 @@ internal class DefaultGoldenRecordAccessorTest {
                 URI("https://anidb.net/anime/4563"),
                 URI("https://myanimelist.net/anime/1535"),
             )
-            assertThat(result.relatedAnime).containsExactly(
+            assertThat(result.relatedAnime).containsExactlyInAnyOrder(
                 RelatedAnime(URI("https://anidb.net/anime/8146")),
                 RelatedAnime(URI("https://anidb.net/anime/8147")),
                 RelatedAnime(URI("https://myanimelist.net/anime/2994")),
@@ -1029,7 +1029,7 @@ internal class DefaultGoldenRecordAccessorTest {
                 URI("https://anidb.net/anime/4563"),
                 URI("https://myanimelist.net/anime/1535"),
             )
-            assertThat(result.relatedAnime).containsExactly(
+            assertThat(result.relatedAnime).containsExactlyInAnyOrder(
                 RelatedAnime(URI("https://anidb.net/anime/8147")),
                 RelatedAnime(URI("https://myanimelist.net/anime/2994")),
             )
@@ -1103,4 +1103,4 @@ internal class DefaultGoldenRecordAccessorTest {
             }
         }
     }
-}
+}

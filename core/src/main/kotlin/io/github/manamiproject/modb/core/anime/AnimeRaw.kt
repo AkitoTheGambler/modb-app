@@ -700,4 +700,4 @@ public data class AnimeRaw(
             "group",
         )
     }
-}
+}

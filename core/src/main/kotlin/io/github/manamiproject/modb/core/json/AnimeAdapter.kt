@@ -216,4 +216,4 @@ internal class AnimeAdapter: JsonAdapter<Anime>() {
 
         writer.endObject()
     }
-}
+}

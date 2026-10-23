@@ -1174,4 +1174,4 @@ internal class SimklAnimeConverterTest {
             assertThat(result === previous).isTrue()
         }
     }
-}
+}

@@ -1788,4 +1788,4 @@ internal class AnidbAnimeConverterTest {
             assertThat(result === previous).isTrue()
         }
     }
-}
+}

@@ -348,4 +348,4 @@ public class SimklAnimeConverter(
          */
         public val instance: SimklAnimeConverter by lazy { SimklAnimeConverter() }
     }
-}
+}

@@ -1331,4 +1331,4 @@ internal class KitsuAnimeConverterTest {
             assertThat(result === previous).isTrue()
         }
     }
-}
+}

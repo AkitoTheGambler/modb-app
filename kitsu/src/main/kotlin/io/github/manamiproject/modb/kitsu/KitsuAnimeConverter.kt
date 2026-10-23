@@ -244,4 +244,4 @@ public class KitsuAnimeConverter(
          */
         public val instance: KitsuAnimeConverter by lazy { KitsuAnimeConverter() }
     }
-}
+}

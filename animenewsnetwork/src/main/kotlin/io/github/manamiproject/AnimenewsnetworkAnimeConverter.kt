@@ -460,4 +460,4 @@ public class AnimenewsnetworkAnimeConverter(
         private val durationOneHourTextRegex = """^.*?one hour ?.*?$""".toRegex()
         private val durationMinSecondsRegex = """^(?<minutes>\d+) +min\. +(?<seconds>\d+)s +minutes( per episode)?$""".toRegex()
     }
-}
+}

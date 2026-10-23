@@ -1402,4 +1402,4 @@ internal class LivechartAnimeConverterTest {
             assertThat(result === previous).isTrue()
         }
     }
-}
+}

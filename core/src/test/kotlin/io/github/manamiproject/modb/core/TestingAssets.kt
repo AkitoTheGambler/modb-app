@@ -1277,4 +1277,4 @@ internal open class TestInputStream: InputStream() {
     override fun equals(other: Any?): Boolean = shouldNotBeInvoked()
     override fun hashCode(): Int = shouldNotBeInvoked()
     override fun toString(): String = shouldNotBeInvoked()
-}
+}

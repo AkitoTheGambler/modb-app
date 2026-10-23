@@ -19,4 +19,4 @@ object AnimeCountdownUrlAdder {
             anime.addRelatedAnime(relatedAnime)
         }
     }
-}
+}

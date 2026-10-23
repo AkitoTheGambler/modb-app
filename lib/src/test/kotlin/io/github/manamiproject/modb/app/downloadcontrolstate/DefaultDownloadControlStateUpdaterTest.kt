@@ -939,4 +939,4 @@ internal class DefaultDownloadControlStateUpdaterTest {
             }
         }
     }
-}
+}

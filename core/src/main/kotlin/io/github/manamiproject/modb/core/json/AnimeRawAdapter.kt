@@ -218,4 +218,4 @@ internal class AnimeRawAdapter: JsonAdapter<AnimeRaw>() {
 
         writer.endObject()
     }
-}
+}

@@ -320,4 +320,4 @@ internal class DefaultDownloadControlStateSchedulerTest {
             }
         }
     }
-}
+}
