@@ -339,7 +339,9 @@ internal class JsonKtTest {
                                 "vap"
                               ],
                               "relatedAnime": [
-                                "https://myanimelist.net/anime/2994"
+                                {
+                                  "uri": "https://myanimelist.net/anime/2994"
+                                }
                               ],
                               "tags": [
                                 "psychological",
@@ -410,7 +412,9 @@ internal class JsonKtTest {
                                 "vap"
                               ],
                               "relatedAnime": [
-                                "https://myanimelist.net/anime/2994"
+                                {
+                                  "uri": "https://myanimelist.net/anime/2994"
+                                }
                               ],
                               "tags": [
                                 "psychological",
@@ -434,4 +438,4 @@ internal class JsonKtTest {
 }
 
 private data class NullableTestClass(val nullableString: String? = null, val nonNullableString: String = "test")
-private data class ClassWithList(val nonNullableList: List<String> = emptyList())
+private data class ClassWithList(val nonNullableList: List<String> = emptyList())
