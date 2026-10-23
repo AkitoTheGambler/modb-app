@@ -28,6 +28,7 @@ public object Json {
     @OptIn(ExperimentalStdlibApi::class)
     internal val moshi: Moshi = Moshi.Builder()
         .addAdapter(UriAdapter())
+        .addAdapter(RelatedAnimeAdapter())
         .addAdapter(DurationAdapter())
         .addAdapter(AnimeTypeAdapter())
         .addAdapter(AnimeStatusAdapter())
@@ -114,4 +115,4 @@ private class SerializationSettings(val options: Set<Json.SerializationOptions>)
     val prettyPrintActivated: Boolean = false.takeIf { options.contains(DEACTIVATE_PRETTY_PRINT)} ?: true
     /** Serialize null is activated by default. */
     val serializeNullActivated: Boolean = false.takeIf { options.contains(DEACTIVATE_SERIALIZE_NULL)} ?: true
-}
+}
