@@ -29,7 +29,7 @@ class LivechartNewestYearDetector(
 ): HighestIdDetector {
 
     override suspend fun detectHighestId(): Int {
-        log.info { "Fetching highest id for [${metaDataProviderConfig.hostname()}]." }
+        log.info { "Detecting newest year for [${metaDataProviderConfig.hostname()}]." }
 
         wait()
 
