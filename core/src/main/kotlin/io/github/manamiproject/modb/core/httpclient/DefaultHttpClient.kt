@@ -167,7 +167,7 @@ public class DefaultHttpClient(
 
                 if ((responseOrException is HttpResponse) && (responseOrException.code == 103)) {
                     responseOrException.close()
-                    log.warn { "Received HTTP status code 103. Deactivating HTTP/2." }
+                    log.warn { "Received HTTP status code 103 from [${request.url.host}]. Deactivating HTTP/2." }
                     protocols.remove(HTTP_2)
                 }
 

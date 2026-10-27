@@ -57,7 +57,7 @@ class LivechartPaginationIdRangeSelector(
             headers = mapOf("host" to listOf("www.${metaDataProviderConfig.hostname()}")),
         ).use { response ->
             if (response.code == 404) {
-                log.warn { "404 on LivechartPaginationIdRangeSelector" }
+                log.warn { "[${metaDataProviderConfig.hostname()}] page [$page] doesn't exist (404). Treating it as empty." }
                 return emptyList()
             }
 
