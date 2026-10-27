@@ -92,6 +92,13 @@ class LivechartCrawler(
             pages = pages.dropWhile { it != lastPage }.drop(1)
         }
 
+        val alreadyDownloaded = alreadyDownloadedIdsFinder.alreadyDownloadedIds(metaDataProviderConfig).size
+        log.info {
+            "[${metaDataProviderConfig.hostname()}] Skipping [$alreadyDownloaded] already downloaded " +
+            "and [${entriesNotScheduledForCurrentWeek.size}] not scheduled for this week. " +
+            "Continuing from page [${pages.firstOrNull() ?: "-"}] with [${pages.size}] pages left."
+        }
+
         wait()
 
         pages.forEach { page ->
