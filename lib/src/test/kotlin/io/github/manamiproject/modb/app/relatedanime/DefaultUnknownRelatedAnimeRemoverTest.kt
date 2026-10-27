@@ -89,4 +89,4 @@ internal class DefaultUnknownRelatedAnimeRemoverTest {
             }
         }
     }
-}
+}

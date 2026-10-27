@@ -2021,4 +2021,4 @@ internal class AnisearchAnimeConverterTest {
             }
         }
     }
-}
+}

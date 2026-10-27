@@ -538,4 +538,4 @@ internal class DefaultMergingServiceTest {
             }
         }
     }
-}
+}

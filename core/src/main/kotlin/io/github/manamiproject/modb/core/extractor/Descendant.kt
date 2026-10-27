@@ -121,4 +121,4 @@ internal class Descendant(private val initial: String) {
         private val FILTER_ATTRIBUTE_EXISTS = """^\[@(?<attr>[\w-]+)\]$""".toRegex()
         private val STRING_VALUES = """.*?'(?<stringValue>.*?)'.*?""".toRegex()
     }
-}
+}

@@ -217,4 +217,4 @@ public class AnilistAnimeConverter(
          */
         public val instance: AnilistAnimeConverter by lazy { AnilistAnimeConverter() }
     }
-}
+}

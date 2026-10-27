@@ -1135,4 +1135,4 @@ internal class DownloadControlStateEntryTest {
             assertThat(result).isEqualTo(1u)
         }
     }
-}
+}

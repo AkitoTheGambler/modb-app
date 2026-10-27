@@ -1953,4 +1953,4 @@ internal class MyanimelistAnimeConverterTest {
             assertThat(result === previous).isTrue()
         }
     }
-}
+}

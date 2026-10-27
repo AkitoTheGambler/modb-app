@@ -320,4 +320,4 @@ public class MyanimelistAnimeConverter(
          */
         public val instance: MyanimelistAnimeConverter by lazy { MyanimelistAnimeConverter() }
     }
-}
+}

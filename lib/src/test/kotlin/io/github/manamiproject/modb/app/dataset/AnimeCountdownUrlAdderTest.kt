@@ -121,4 +121,4 @@ internal class AnimeCountdownUrlAdderTest {
         // then
         assertThat(result).containsExactly(testAnime)
     }
-}
+}

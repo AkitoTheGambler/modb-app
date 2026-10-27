@@ -1084,4 +1084,4 @@ internal class AnilistAnimeConverterTest {
             assertThat(result === previous).isTrue()
         }
     }
-}
+}

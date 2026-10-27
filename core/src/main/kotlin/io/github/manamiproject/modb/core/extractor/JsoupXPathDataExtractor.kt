@@ -64,4 +64,4 @@ internal object JsoupXPathDataExtractor : DataExtractor {
 
         return entry.first to value
     }
-}
+}

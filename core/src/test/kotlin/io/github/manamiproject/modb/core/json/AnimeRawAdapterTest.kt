@@ -1796,4 +1796,4 @@ internal class AnimeRawAdapterTest {
             assertThat(result).hasMessage("AnimeRawAdapter expects non-nullable value, but received null.")
         }
     }
-}
+}
