@@ -1,5 +1,6 @@
 package io.github.manamiproject.modb.app
 
+import io.github.manamiproject.modb.anidb.AnidbConfig
 import io.github.manamiproject.modb.anisearch.AnisearchConfig
 import io.github.manamiproject.modb.anisearch.AnisearchRelationsConfig
 import io.github.manamiproject.modb.app.convfiles.DefaultRawFileConversionService
@@ -21,6 +22,7 @@ import io.github.manamiproject.modb.app.downloadcontrolstate.DefaultDownloadCont
 import io.github.manamiproject.modb.app.extensions.alertDeletedAnimeByTitle
 import io.github.manamiproject.modb.app.fluentapi.*
 import io.github.manamiproject.modb.app.network.LinuxNetworkController
+import io.github.manamiproject.modb.app.network.NetworkControllers
 import io.github.manamiproject.modb.app.postprocessors.*
 import io.github.manamiproject.modb.core.coroutines.CoroutineManager.runCoroutine
 import io.github.manamiproject.modb.core.coroutines.ModbDispatchers.LIMITED_NETWORK
@@ -37,12 +39,19 @@ import kotlin.system.exitProcess
 private val log = org.slf4j.LoggerFactory.getLogger("App")
 
 fun main() = runCoroutine {
-    LinuxNetworkController.instance.sudoPasswordValue = passwordPrompt()
+    val disabled = DefaultConfigRegistry.instance.list<String>("modb.app.disabledCrawlers")?.toSet() ?: emptySet()
+
+    // Only the crawlers of these sites change the outgoing address by restarting the network device.
+    val sitesChangingAddress = setOf(AnidbConfig.hostname(), AnisearchConfig.hostname()) - disabled
+
+    when {
+        isRoot() -> log.info("Running as root. No sudo password needed.")
+        !NetworkControllers.usesNetworkDevice(sitesChangingAddress) -> log.info("Network device won't be restarted. No sudo password needed.")
+        else -> LinuxNetworkController.instance.sudoPasswordValue = verifiedSudoPassword()
+    }
 
     val rawFileConversionService = DefaultRawFileConversionService.instance
     rawFileConversionService.start()
-
-    val disabled = DefaultConfigRegistry.instance.list<String>("modb.app.disabledCrawlers")?.toSet() ?: emptySet()
 
     val crawlers = mutableListOf<Job>()
 
@@ -90,6 +99,47 @@ fun main() = runCoroutine {
         ReleaseInfoFileCreatorPostProcessor.instance
     ).forEach { it.process() }
 }
+
+@KoverIgnore
+private fun isRoot(): Boolean = try {
+    val process = ProcessBuilder("id", "-u").redirectErrorStream(true).start()
+    val userId = process.inputStream.bufferedReader().readText().trim()
+    process.waitFor() == 0 && userId == "0"
+} catch (_: Exception) {
+    false
+}
+
+@KoverIgnore
+private fun verifiedSudoPassword(): String {
+    repeat(MAX_SUDO_ATTEMPTS) { attempt ->
+        val password = passwordPrompt()
+
+        if (isValidSudoPassword(password)) {
+            return password
+        }
+
+        log.warn("Incorrect sudo password [${attempt + 1}/$MAX_SUDO_ATTEMPTS].")
+    }
+
+    log.error("No valid sudo password after [$MAX_SUDO_ATTEMPTS] attempts. Exiting.")
+    exitProcess(1)
+}
+
+/**
+ * `-k` ignores cached credentials so that the password is really checked, `-S` reads it from stdin
+ * and `-v` only validates without running a command.
+ */
+@KoverIgnore
+private fun isValidSudoPassword(password: String): Boolean = try {
+    val process = ProcessBuilder("sudo", "-k", "-S", "-p", "", "-v").redirectErrorStream(true).start()
+    process.outputStream.bufferedWriter().use { it.write(password); it.newLine() }
+    process.inputStream.bufferedReader().readText()
+    process.waitFor() == 0
+} catch (_: Exception) {
+    false
+}
+
+private const val MAX_SUDO_ATTEMPTS = 3
 
 @KoverIgnore
 private fun passwordPrompt(): String {
