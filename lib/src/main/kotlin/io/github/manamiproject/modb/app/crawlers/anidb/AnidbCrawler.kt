@@ -4,6 +4,7 @@ import io.github.manamiproject.modb.anidb.AnidbConfig
 import io.github.manamiproject.modb.anidb.AnidbApiDownloader
 import io.github.manamiproject.modb.anidb.AnidbDownloader
 import io.github.manamiproject.modb.anidb.AnidbDownloader.Companion.ANIDB_PENDING_FILE_INDICATOR
+import io.github.manamiproject.modb.anidb.AnidbBannedException
 import io.github.manamiproject.modb.anidb.CrawlerDetectedException
 import io.github.manamiproject.modb.app.config.AppConfig
 import io.github.manamiproject.modb.app.config.Config
@@ -69,7 +70,9 @@ class AnidbCrawler(
         hostname = metaDataProviderConfig.hostname(),
         // Detection is answered below by leaving through another connection. Skipping it here
         // would burn the run's remaining entries against an address anidb has already refused.
-        isHandledByCaller = { it is CrawlerDetectedException },
+        // A ban which outlasts the downloader's own retries stops the crawler right away for the
+        // same reason: every further request during a ban can extend it.
+        isHandledByCaller = { it is CrawlerDetectedException || it is AnidbBannedException },
     ),
     private val networkController: NetworkController = NetworkControllers.forDeployment(hostname = metaDataProviderConfig.hostname()),
     configRegistry: ConfigRegistry = DefaultConfigRegistry.instance,

@@ -12,6 +12,7 @@ import io.github.manamiproject.modb.core.logging.LoggerDelegate
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration
 import okhttp3.*
 import okhttp3.Protocol.HTTP_1_1 as OKHTTP_HTTP_1_1
 import okhttp3.Protocol.HTTP_2 as OKHTTP_HTTP_2
@@ -158,6 +159,7 @@ public class DefaultHttpClient(
         var attempt = 0
         var retryCase: RetryCase = NoRetry
         var responseOrException: Any = HttpResponse(100, EMPTY)
+        var retryAfter: Duration? = null
 
         do {
             if (retryCase !is NoRetry) {
@@ -185,7 +187,7 @@ public class DefaultHttpClient(
                     okhttpClient = currentClient.newBuilder().build()
                 }
 
-                wait(request, retryCase, attempt)
+                wait(request, retryCase, attempt, retryAfter)
             }
 
             responseOrException = safelyExecute {
@@ -201,7 +203,10 @@ public class DefaultHttpClient(
                 true -> {
                     log.debug { "[${request.method} ${request.url}] Requires retry." }
 
+                    retryAfter = null
+
                     if (responseOrException is HttpResponse) {
+                        retryAfter = parseRetryAfter(responseOrException.headers)
                         responseOrException.close()
                     }
 
@@ -229,10 +234,18 @@ public class DefaultHttpClient(
     }
 
     @KoverIgnore
-    private suspend fun wait(request: Request, retryCase: RetryCase, attempt: Int) {
+    private suspend fun wait(request: Request, retryCase: RetryCase, attempt: Int, retryAfter: Duration?) {
         if (!isTestContext) {
-            log.trace { "Initiating waiting time for retry of [${request.method} ${request.url}]." }
-            delay(retryCase.waitDuration(attempt))
+            val duration = when (retryAfter) {
+                null -> retryCase.waitDuration(attempt)
+                else -> {
+                    log.info { "Server asked to retry [${request.method} ${request.url}] after [$retryAfter]." }
+                    retryAfter
+                }
+            }
+
+            log.trace { "Initiating waiting time of [$duration] for retry of [${request.method} ${request.url}]." }
+            delay(duration)
         }
     }
 
