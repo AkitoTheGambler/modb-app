@@ -73,16 +73,28 @@ class IntegerBasedIdRangeSelector(
             log.info { "Rechecking [${recheck.size}] of [${deadEntries.size}] dead entries for [${metaDataProviderConfig.hostname()}]." }
         }
 
+        val beforeDeadEntries = possibleIds.size
         possibleIds.removeAll(deadEntries - recheck)
+        val excludedDeadEntries = beforeDeadEntries - possibleIds.size
         log.debug { "Having [${possibleIds.size}] for [${metaDataProviderConfig.hostname()}] after excluding dead entries." }
 
         log.debug { "Having [${possibleIds.size}] for [${metaDataProviderConfig.hostname()}] before excluding entries which are not scheduled for the current week." }
+        val beforeNotScheduled = possibleIds.size
         possibleIds.removeAll(downloadControlStateScheduler.findEntriesNotScheduledForCurrentWeek(metaDataProviderConfig).map { it.toInt() }.toSet())
+        val excludedNotScheduled = beforeNotScheduled - possibleIds.size
         log.debug { "Having [${possibleIds.size}] for [${metaDataProviderConfig.hostname()}] after excluding entries which are not scheduled for the current week." }
 
         log.debug { "Having [${possibleIds.size}] for [${metaDataProviderConfig.hostname()}] before excluding already downloaded entries." }
+        val beforeAlreadyDownloaded = possibleIds.size
         possibleIds.removeAll(alreadyDownloadedIdsFinder.alreadyDownloadedIds(metaDataProviderConfig).map { it.toInt() }.toSet())
+        val excludedAlreadyDownloaded = beforeAlreadyDownloaded - possibleIds.size
         log.debug { "Having [${possibleIds.size}] for [${metaDataProviderConfig.hostname()}] after excluding already downloaded entries." }
+
+        log.info {
+            "[${metaDataProviderConfig.hostname()}] highest ID is [$highestId]. " +
+            "Skipping [$excludedDeadEntries] dead entries, [$excludedNotScheduled] entries not scheduled for this week " +
+            "and [$excludedAlreadyDownloaded] already downloaded. [${possibleIds.size}] of [$highestId] IDs left to download."
+        }
 
         return possibleIds.toList().createShuffledList()
     }
