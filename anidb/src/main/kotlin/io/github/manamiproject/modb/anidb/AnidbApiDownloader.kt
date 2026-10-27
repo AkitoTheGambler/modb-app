@@ -10,7 +10,12 @@ import io.github.manamiproject.modb.core.downloader.Downloader
 import io.github.manamiproject.modb.core.httpclient.DefaultHttpClient
 import io.github.manamiproject.modb.core.httpclient.HttpClient
 import io.github.manamiproject.modb.core.logging.LoggerDelegate
+import io.github.manamiproject.modb.core.excludeFromTestContext
+import io.github.manamiproject.modb.core.random
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlin.time.DurationUnit.MILLISECONDS
+import kotlin.time.toDuration
 import java.io.ByteArrayInputStream
 import java.net.URI
 import java.util.zip.GZIPInputStream
@@ -45,6 +50,34 @@ public class AnidbApiDownloader(
     override suspend fun download(id: AnimeId, onDeadEntry: suspend (AnimeId) -> Unit): String = withContext(LIMITED_NETWORK) {
         log.debug { "Downloading [anidbId=$id]" }
 
+        var attempt = 0
+
+        while (true) {
+            try {
+                return@withContext downloadOnce(id, onDeadEntry)
+            } catch (e: AnidbBannedException) {
+                attempt++
+
+                if (attempt > MAX_BAN_RETRIES) {
+                    log.error { "Still banned by the API after [$MAX_BAN_RETRIES] retries. Giving up on [anidbId=$id]." }
+                    throw e
+                }
+
+                // Same waiting time as the retries of the http client. The ban is answered with
+                // http 200, so the http client itself doesn't see it as a reason to retry.
+                val waitTime = (random(MIN_BAN_WAIT_IN_MILLISECONDS, MAX_BAN_WAIT_IN_MILLISECONDS) * attempt).toDuration(MILLISECONDS)
+                log.warn { "Banned by the API. Retry [$attempt/$MAX_BAN_RETRIES] for [anidbId=$id] in [$waitTime]." }
+
+                excludeFromTestContext(metaDataProviderConfig) {
+                    delay(waitTime)
+                }
+            }
+        }
+
+        EMPTY_RESPONSE
+    }
+
+    private suspend fun downloadOnce(id: AnimeId, onDeadEntry: suspend (AnimeId) -> Unit): String {
         val url = URI("${metaDataProviderConfig.buildDataDownloadLink(id)}&client=$client&clientver=$clientver&protover=$PROTOCOL_VERSION").toURL()
         val response = httpClient.get(url)
         val body = decompressIfNecessary(response.bodyAsByteArray())
@@ -64,13 +97,17 @@ public class AnidbApiDownloader(
             if (code in DEAD_ENTRY_CODES || message.lowercase() in DEAD_ENTRY_MESSAGES) {
                 log.info { "Adding [anidbId=$id] to dead entries list, because the API responded with [$message]." }
                 onDeadEntry.invoke(id)
-                return@withContext EMPTY_RESPONSE
+                return EMPTY_RESPONSE
+            }
+
+            if (message.lowercase() == BANNED_MESSAGE) {
+                throw AnidbBannedException("API responded with error [code=$code], [message=$message] for [anidbId=$id].")
             }
 
             throw IllegalStateException("API responded with error [code=$code], [message=$message] for [anidbId=$id].")
         }
 
-        return@withContext body
+        return body
     }
 
     private fun decompressIfNecessary(body: ByteArray): String {
@@ -88,6 +125,10 @@ public class AnidbApiDownloader(
         private val log by LoggerDelegate()
 
         private const val PROTOCOL_VERSION = 1
+        private const val BANNED_MESSAGE = "banned"
+        private const val MAX_BAN_RETRIES = 5
+        private const val MIN_BAN_WAIT_IN_MILLISECONDS = 60000
+        private const val MAX_BAN_WAIT_IN_MILLISECONDS = 90000
         private const val EMPTY_RESPONSE = ""
         private const val GZIP_MAGIC_FIRST: Byte = 0x1f
         private const val GZIP_MAGIC_SECOND: Byte = 0x8b.toByte()
