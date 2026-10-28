@@ -1011,6 +1011,32 @@ internal class AnimenewsnetworkAnimeConverterTest {
         }
 
         @Test
+        fun `relations in brackets separated by comma each keep their own label`() {
+            runTest {
+                // given
+                val testAnimenewsnetworkConfig = object : MetaDataProviderConfig by TestMetaDataProviderConfig {
+                    override fun hostname(): Hostname = AnimenewsnetworkConfig.hostname()
+                    override fun buildAnimeLink(id: AnimeId): URI = AnimenewsnetworkConfig.buildAnimeLink(id)
+                    override fun fileSuffix(): FileSuffix = AnimenewsnetworkConfig.fileSuffix()
+                }
+
+                val converter = AnimenewsnetworkAnimeConverter(testAnimenewsnetworkConfig)
+
+                // [ part of <a>[Gundam]</a>, compilation of <a>Mobile Suit Gundam Wing (TV)</a> ]
+                val testFile = loadTestResource<String>("AnimenewsnetworkAnimeConverterTest/duration/one-hour-per-episode.html")
+
+                // when
+                val result = converter.convert(testFile)
+
+                // then
+                assertThat(result.relatedAnime).containsExactlyInAnyOrder(
+                    RelatedAnime(URI("https://animenewsnetwork.com/encyclopedia/anime.php?id=4189"), "part of"),
+                    RelatedAnime(URI("https://animenewsnetwork.com/encyclopedia/anime.php?id=26"), "compilation of"),
+                )
+            }
+        }
+
+        @Test
         fun `no related anime, no-relation in-brackets, but an adaption`() {
             runTest {
                 // given
