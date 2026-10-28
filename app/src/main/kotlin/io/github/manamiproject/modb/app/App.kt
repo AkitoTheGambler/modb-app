@@ -42,7 +42,14 @@ fun main() = runCoroutine {
     val disabled = DefaultConfigRegistry.instance.list<String>("modb.app.disabledCrawlers")?.toSet() ?: emptySet()
 
     // Only the crawlers of these sites change the outgoing address by restarting the network device.
-    val sitesChangingAddress = setOf(AnidbConfig.hostname(), AnisearchConfig.hostname()) - disabled
+    val sitesChangingAddress = buildSet {
+        if (AnidbConfig.hostname() !in disabled) {
+            add(AnidbConfig.hostname())
+        }
+        if (AnisearchConfig.hostname() !in disabled || "anisearch.com-relations" !in disabled) {
+            add(AnisearchConfig.hostname())
+        }
+    }
 
     when {
         isRoot() -> log.info("Running as root. No sudo password needed.")
