@@ -288,8 +288,8 @@ public class AnimenewsnetworkAnimeConverter(
         return data.listNotNull<String>("relatedAnime").flatMap { html ->
             relatedAnimeLinkRegex.findAll(html).map { match ->
                 val textBefore = html.substring(0, match.range.first).substringAfterLast('>')
-                val label = if (textBefore.contains('[')) {
-                    textBefore.substringAfterLast('[')
+                val label = if (textBefore.contains('[') || textBefore.trimStart().startsWith(',')) {
+                    textBefore.substringAfterLast('[').trimStart().removePrefix(",")
                 } else {
                     relationInBracketsRegex.find(match.groups["after"]?.value ?: EMPTY)?.groups?.get("label")?.value
                 }
