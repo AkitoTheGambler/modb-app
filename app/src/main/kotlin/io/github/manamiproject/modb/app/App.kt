@@ -42,7 +42,15 @@ fun main() = runCoroutine {
     val disabled = DefaultConfigRegistry.instance.list<String>("modb.app.disabledCrawlers")?.toSet() ?: emptySet()
 
     // Only the crawlers of these sites change the outgoing address by restarting the network device.
-    val sitesChangingAddress = setOf(AnidbConfig.hostname(), AnisearchConfig.hostname()) - disabled
+    // Both aniSearch crawlers use the hostname of anisearch.com, but can be disabled independently.
+    val sitesChangingAddress = buildSet {
+        if (AnidbConfig.hostname() !in disabled) {
+            add(AnidbConfig.hostname())
+        }
+        if (AnisearchConfig.hostname() !in disabled || ANISEARCH_RELATIONS_CRAWLER !in disabled) {
+            add(AnisearchConfig.hostname())
+        }
+    }
 
     when {
         isRoot() -> log.info("Running as root. No sudo password needed.")
@@ -61,7 +69,7 @@ fun main() = runCoroutine {
         crawl("anime-planet.com", disabled, crawlers) { AnimePlanetCrawler.instance.start() }
         crawl("animenewsnetwork.com", disabled, crawlers) { AnimenewsnetworkCrawler.instance.start() }
         crawl("anisearch.com", disabled, crawlers) { AnisearchCrawler(metaDataProviderConfig = AnisearchConfig).start() }
-        crawl("anisearch.com-relations", disabled, crawlers) { AnisearchCrawler(metaDataProviderConfig = AnisearchRelationsConfig).start() }
+        crawl(ANISEARCH_RELATIONS_CRAWLER, disabled, crawlers) { AnisearchCrawler(metaDataProviderConfig = AnisearchRelationsConfig).start() }
         crawl("kitsu.app", disabled, crawlers) { KitsuCrawler.instance.start() }
         crawl("livechart.me", disabled, crawlers) { LivechartCrawler.instance.start() }
         crawl("myanimelist.net", disabled, crawlers) { MyanimelistCrawler.instance.start() }
@@ -140,6 +148,7 @@ private fun isValidSudoPassword(password: String): Boolean = try {
 }
 
 private const val MAX_SUDO_ATTEMPTS = 3
+private const val ANISEARCH_RELATIONS_CRAWLER = "anisearch.com-relations"
 
 @KoverIgnore
 private fun passwordPrompt(): String {
