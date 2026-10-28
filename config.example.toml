@@ -1,0 +1,13 @@
+# Copy to config.toml and fill in the values. All directories must exist.
+
+[modb.app]
+downloadsDirectory = ""
+outputDirectory = ""
+downloadControlStateDirectory = ""
+# Crawlers to skip.
+disabledCrawlers = ["anidb.net"]
+
+[modb.anidb]
+# Client registered for the AniDB HTTP API.
+client = ""
+clientver = ""
