@@ -55,11 +55,11 @@ internal object JsoupXPathDataExtractor : DataExtractor {
 
         val value = when {
             jsoupElements.isEmpty() -> NotFound
-            entry.third == "text()" -> jsoupElements.eachText() ?: NotFound
+            entry.third == "text()" -> jsoupElements.eachText()
             entry.third == "node()" -> jsoupElements.dataNodes().map { it.wholeData.trim() }
             entry.third == "html()" -> jsoupElements.map { it.outerHtml() }
             entry.third.eitherNullOrBlank() -> jsoupElements.textNodes().map { it.text().trim() }.filter { it.neitherNullNorBlank() }
-            else -> jsoupElements.eachAttr(entry.third) ?: NotFound
+            else -> jsoupElements.eachAttr(entry.third)
         }
 
         return entry.first to value
