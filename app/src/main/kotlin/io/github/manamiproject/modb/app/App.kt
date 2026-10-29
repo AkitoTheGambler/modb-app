@@ -35,10 +35,17 @@ import javax.swing.JPasswordField
 import javax.swing.SwingUtilities
 import kotlin.system.exitProcess
 
+// Lazy, because the first logger sets up logback, which reads the configuration. That has to wait
+// until ensureConfigFileExists() had the chance to create it.
 @KoverIgnore
-private val log = org.slf4j.LoggerFactory.getLogger("App")
+private val log by lazy { org.slf4j.LoggerFactory.getLogger("App") }
 
-fun main() = runCoroutine {
+fun main() {
+    ensureConfigFileExists()
+    crawlAndCreateDataset()
+}
+
+private fun crawlAndCreateDataset() = runCoroutine {
     val disabled = DefaultConfigRegistry.instance.list<String>("modb.app.disabledCrawlers")?.toSet() ?: emptySet()
 
     // Only the crawlers of these sites change the outgoing address by restarting the network device.
