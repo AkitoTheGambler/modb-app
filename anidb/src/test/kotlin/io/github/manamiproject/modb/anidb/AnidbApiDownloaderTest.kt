@@ -73,6 +73,35 @@ internal class AnidbApiDownloaderTest {
         }
 
         @Test
+        fun `number of retries while banned can be set via banRetries`() {
+            // given
+            var invocations = 0
+            val testHttpClient = respondingWith {
+                invocations++
+                """<error code="500">banned</error>"""
+            }
+
+            val testConfigRegistry = object: ConfigRegistry by TestConfigRegistry {
+                override fun string(key: String): String = "test"
+                override fun int(key: String): Int? = if (key == "modb.anidb.banRetries") 2 else null
+            }
+
+            val downloader = AnidbApiDownloader(
+                metaDataProviderConfig = testAnidbConfig,
+                configRegistry = testConfigRegistry,
+                httpClient = testHttpClient,
+            )
+
+            // when
+            exceptionExpected<AnidbBannedException> {
+                downloader.download("1") { shouldNotBeInvoked() }
+            }
+
+            // then
+            assertThat(invocations).isEqualTo(3)
+        }
+
+        @Test
         fun `other errors are not retried`() {
             // given
             var invocations = 0
@@ -104,6 +133,7 @@ internal class AnidbApiDownloaderTest {
 
     private val testConfigRegistry = object: ConfigRegistry by TestConfigRegistry {
         override fun string(key: String): String = "test"
+        override fun int(key: String): Int? = null
     }
 
     private fun respondingWith(body: () -> String) = object: HttpClient {

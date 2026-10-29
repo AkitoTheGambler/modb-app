@@ -4,6 +4,7 @@ import io.github.manamiproject.modb.core.config.AnimeId
 import io.github.manamiproject.modb.core.config.ConfigRegistry
 import io.github.manamiproject.modb.core.config.DefaultConfigRegistry
 import io.github.manamiproject.modb.core.config.MetaDataProviderConfig
+import io.github.manamiproject.modb.core.config.IntPropertyDelegate
 import io.github.manamiproject.modb.core.config.StringPropertyDelegate
 import io.github.manamiproject.modb.core.coroutines.ModbDispatchers.LIMITED_NETWORK
 import io.github.manamiproject.modb.core.downloader.Downloader
@@ -28,7 +29,7 @@ import java.util.zip.GZIPInputStream
  * configuration rather than constants.
  * @since 1.0.0
  * @property metaDataProviderConfig Configuration for downloading data.
- * @property configRegistry Source of the registered client name and version.
+ * @property configRegistry Source of the registered client name and version and of `modb.anidb.banRetries`, the number of retries while banned. **Default:** `5`
  * @property httpClient To actually download the anime data.
  */
 public class AnidbApiDownloader(
@@ -47,6 +48,13 @@ public class AnidbApiDownloader(
         namespace = CONFIG_NAMESPACE,
     )
 
+    private val banRetries: Int by IntPropertyDelegate(
+        configRegistry = configRegistry,
+        namespace = CONFIG_NAMESPACE,
+        default = DEFAULT_BAN_RETRIES,
+        validator = { it >= 0 },
+    )
+
     override suspend fun download(id: AnimeId, onDeadEntry: suspend (AnimeId) -> Unit): String = withContext(LIMITED_NETWORK) {
         log.debug { "Downloading [anidbId=$id]" }
 
@@ -58,15 +66,15 @@ public class AnidbApiDownloader(
             } catch (e: AnidbBannedException) {
                 attempt++
 
-                if (attempt > MAX_BAN_RETRIES) {
-                    log.error { "Still banned by the API after [$MAX_BAN_RETRIES] retries. Giving up on [anidbId=$id]." }
+                if (attempt > banRetries) {
+                    log.error { "Still banned by the API after [$banRetries] retries. Giving up on [anidbId=$id]." }
                     throw e
                 }
 
                 // Same waiting time as the retries of the http client. The ban is answered with
                 // http 200, so the http client itself doesn't see it as a reason to retry.
                 val waitTime = (random(MIN_BAN_WAIT_IN_MILLISECONDS, MAX_BAN_WAIT_IN_MILLISECONDS) * attempt).toDuration(MILLISECONDS)
-                log.warn { "Banned by the API. Retry [$attempt/$MAX_BAN_RETRIES] for [anidbId=$id] in [$waitTime]." }
+                log.warn { "Banned by the API. Retry [$attempt/$banRetries] for [anidbId=$id] in [$waitTime]." }
 
                 excludeFromTestContext(metaDataProviderConfig) {
                     delay(waitTime)
@@ -126,7 +134,7 @@ public class AnidbApiDownloader(
 
         private const val PROTOCOL_VERSION = 1
         private const val BANNED_MESSAGE = "banned"
-        private const val MAX_BAN_RETRIES = 5
+        private const val DEFAULT_BAN_RETRIES = 5
         private const val MIN_BAN_WAIT_IN_MILLISECONDS = 60000
         private const val MAX_BAN_WAIT_IN_MILLISECONDS = 90000
         private const val EMPTY_RESPONSE = ""
