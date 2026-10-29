@@ -63,6 +63,11 @@ application {
 }
 
 tasks {
+    // Bundled so that the app can offer to create a config.toml from it on the first start.
+    named<ProcessResources>("processResources") {
+        from(rootProject.file("config.example.toml"))
+    }
+
     named<ShadowJar>("shadowJar") {
         archiveBaseName.set("modb-app")
         archiveClassifier.set("")
