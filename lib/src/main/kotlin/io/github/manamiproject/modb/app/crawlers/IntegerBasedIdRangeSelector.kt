@@ -28,6 +28,7 @@ import io.github.manamiproject.modb.core.logging.LoggerDelegate
  * @property downloadControlStateAccessor Access to DCS files.
  * @property downloadControlStateScheduler Allows to check which anime are scheduled for re-download and which are not.
  * @property alreadyDownloadedIdsFinder Fetches all IDs which have already been downloaded.
+ * @property recheckDeadEntries Whether `deadEntriesToRecheck` applies. A crawler which rechecks something else instead turns it off.
  */
 class IntegerBasedIdRangeSelector(
     private val metaDataProviderConfig: MetaDataProviderConfig,
@@ -36,6 +37,7 @@ class IntegerBasedIdRangeSelector(
     private val downloadControlStateAccessor: DownloadControlStateAccessor = DefaultDownloadControlStateAccessor.instance,
     private val downloadControlStateScheduler: DownloadControlStateScheduler = DefaultDownloadControlStateScheduler.instance,
     private val alreadyDownloadedIdsFinder: AlreadyDownloadedIdsFinder = DefaultAlreadyDownloadedIdsFinder.instance,
+    private val recheckDeadEntries: Boolean = true,
     configRegistry: ConfigRegistry = DefaultConfigRegistry.instance,
 ): IdRangeSelector<Int> {
 
@@ -67,7 +69,7 @@ class IntegerBasedIdRangeSelector(
         // out of the dataset for good. The highest ids are the ones this happens to, because they
         // are the ones a provider is still filling in, so a slice of them is looked at again.
         val deadEntries = deadEntriesAccessor.fetchDeadEntries(metaDataProviderConfig).map { it.toInt() }.toSet()
-        val recheck = deadEntries.sortedDescending().take(deadEntriesToRecheck).toSet()
+        val recheck = if (recheckDeadEntries) deadEntries.sortedDescending().take(deadEntriesToRecheck).toSet() else emptySet()
 
         if (recheck.isNotEmpty()) {
             log.info { "Rechecking [${recheck.size}] of [${deadEntries.size}] dead entries for [${metaDataProviderConfig.hostname()}]." }
