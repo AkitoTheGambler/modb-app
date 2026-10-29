@@ -24,6 +24,7 @@ import java.nio.file.StandardCopyOption.ATOMIC_MOVE
 import java.nio.file.StandardCopyOption.REPLACE_EXISTING
 import java.time.Duration
 import java.time.Instant
+import java.time.format.DateTimeFormatter
 import java.util.zip.GZIPInputStream
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.io.path.getLastModifiedTime
@@ -88,7 +89,8 @@ class AnidbTitlesDumpHighestIdDetector(
         val lastDownload = if (file.regularFileExists()) file.getLastModifiedTime().toInstant() else Instant.EPOCH
 
         if (Duration.between(lastDownload, now) < maxAge) {
-            log.info { "Using the AniDB title dump downloaded at [$lastDownload]. The next download is due after [${lastDownload.plus(maxAge)}]." }
+            val nextDownload = lastDownload.plus(maxAge)
+            log.info { "Using the AniDB title dump from [${format(lastDownload)}]. Next download possible from [${format(nextDownload)}] (in [${formatDuration(Duration.between(now, nextDownload))}])." }
             return@withLock file.readBytes()
         }
 
@@ -113,7 +115,7 @@ class AnidbTitlesDumpHighestIdDetector(
                 throw e
             }
 
-            log.warn { "Unable to download the AniDB title dump [${e.message}]. Using the one downloaded at [$lastDownload] instead." }
+            log.warn { "Unable to download the AniDB title dump [${e.message}]. Using the one from [${format(lastDownload)}] instead." }
             return@withLock file.readBytes()
         }
     }
@@ -136,6 +138,10 @@ class AnidbTitlesDumpHighestIdDetector(
         deadEntriesAccessor.replaceDeadEntries(deadEntries, AnidbConfig)
     }
 
+    private fun format(instant: Instant): String = TIMESTAMP_FORMAT.format(instant.atZone(appConfig.clock().zone))
+
+    private fun formatDuration(duration: Duration): String = "%dh %02dm".format(duration.toHours(), duration.toMinutesPart())
+
     private fun dumpFile(): RegularFile = appConfig.downloadControlStateDirectory().resolve(DUMP_FILE_NAME)
 
     private fun parse(body: ByteArray): Set<Int> {
@@ -157,6 +163,7 @@ class AnidbTitlesDumpHighestIdDetector(
         private val log by LoggerDelegate()
 
         private const val COMMENT = "#"
+        private val TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
         private const val SEPARATOR = '|'
         private const val GZIP_MAGIC_FIRST: Byte = 0x1f
         private const val GZIP_MAGIC_SECOND: Byte = 0x8b.toByte()
