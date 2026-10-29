@@ -226,8 +226,9 @@ internal class JavaProcessBuilderTest {
 
 private fun sudoRequiresPassword(): Boolean {
     return try {
-        // -k ignores cached credentials, -n fails instead of asking if a password is required
-        ProcessBuilder("sudo", "-k", "-n", "true")
+        // -n fails instead of asking if a password is required. Without -k, so that credentials cached by an earlier
+        // sudo in the same terminal count as well: the command under test would use them and never check the password.
+        ProcessBuilder("sudo", "-n", "true")
             .redirectErrorStream(true)
             .start()
             .waitFor() != 0
