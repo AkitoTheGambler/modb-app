@@ -473,6 +473,53 @@ internal class DefaultDownloadControlStateUpdaterTest {
         }
 
         @Test
+        fun `skips and deletes an empty conv file instead of failing the run`() {
+            tempDirectory {
+                // given
+                val rawdata = tempDir.resolve("rawdata").createDirectory()
+                val dcs = tempDir.resolve("dcs").createDirectory()
+
+                val anime = AnimeRaw(
+                    _title = "Shin Seiki Evangelion Movie: THE END OF EVANGELION",
+                    _sources = hashSetOf(URI("https://anilist.co/anime/32")),
+                )
+                Json.toJson(anime).writeToFile(rawdata.resolve("32.$CONVERTED_FILE_SUFFIX").createFile())
+                val emptyFile = rawdata.resolve("64.$CONVERTED_FILE_SUFFIX").createFile()
+
+                val testAppConfig = object: Config by TestAppConfig {
+                    override fun downloadControlStateDirectory(): Directory = dcs
+                    override fun metaDataProviderConfigurations(): Set<MetaDataProviderConfig> = setOf(AnilistConfig)
+                    override fun workingDir(metaDataProviderConfig: MetaDataProviderConfig): Directory = rawdata
+                    override fun findMetaDataProviderConfig(host: Hostname): MetaDataProviderConfig = AnilistConfig
+                    override fun clock(): Clock = Clock.fixed(Instant.parse("2021-11-02T17:55:43.035Z"), ZoneId.systemDefault())
+                }
+
+                val updatedIds = mutableListOf<AnimeId>()
+                val testDownloadControlStateAccessor = object: DownloadControlStateAccessor by TestDownloadControlStateAccessor {
+                    override suspend fun allDcsEntries(metaDataProviderConfig: MetaDataProviderConfig): List<DownloadControlStateEntry> = emptyList()
+                    override fun downloadControlStateDirectory(metaDataProviderConfig: MetaDataProviderConfig): Directory = tempDir
+                    override suspend fun dcsEntryExists(metaDataProviderConfig: MetaDataProviderConfig, animeId: AnimeId): Boolean = false
+                    override suspend fun createOrUpdate(metaDataProviderConfig: MetaDataProviderConfig, animeId: AnimeId, downloadControlStateEntry: DownloadControlStateEntry): Boolean {
+                        updatedIds.add(animeId)
+                        return true
+                    }
+                }
+
+                val downloadControlStateUpdater = DefaultDownloadControlStateUpdater(
+                    appConfig = testAppConfig,
+                    downloadControlStateAccessor = testDownloadControlStateAccessor,
+                )
+
+                // when
+                downloadControlStateUpdater.updateAll()
+
+                // then
+                assertThat(updatedIds).containsExactly("32")
+                assertThat(emptyFile).doesNotExist()
+            }
+        }
+
+        @Test
         fun `creates dcs file if it doesn't exist`() {
             tempDirectory {
                 // given
