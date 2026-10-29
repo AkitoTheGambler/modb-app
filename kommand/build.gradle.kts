@@ -45,12 +45,12 @@ tasks.withType<Test> {
     maxParallelForks = Runtime.getRuntime().availableProcessors()
 }
 
-val sourcesJar by tasks.registering(Jar::class) {
+val sourcesJar = tasks.register<Jar>("sourcesJar") {
     archiveClassifier.set("sources")
     from(sourceSets.main.get().allSource)
 }
 
-val javaDoc by tasks.registering(Jar::class) {
+val javaDoc = tasks.register<Jar>("javaDoc") {
     archiveClassifier.set("javadoc")
     from(sourceSets.main.get().allSource)
 }
