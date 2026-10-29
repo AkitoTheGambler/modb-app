@@ -72,6 +72,8 @@ internal class AnidbCrawlerTest {
                     httpClient = testHttpClient,
                     downloader = TestDownloader,
                     networkController = testNetworkController,
+                    pendingEntries = TestAnidbPendingEntries,
+                    titleDump = { emptySet() },
                 )
 
                 // then
@@ -117,6 +119,8 @@ internal class AnidbCrawlerTest {
                 deadEntriesAccess = TestDeadEntriesAccessor,
                 idRangeSelector = testIdRangeSelector,
                 networkController = TestNetworkController,
+                pendingEntries = TestAnidbPendingEntries,
+                titleDump = { emptySet() },
             )
 
             // when
@@ -155,6 +159,8 @@ internal class AnidbCrawlerTest {
                     deadEntriesAccess = TestDeadEntriesAccessor,
                     idRangeSelector = testIdRangeSelector,
                     networkController = TestNetworkController,
+                    pendingEntries = TestAnidbPendingEntries,
+                    titleDump = { emptySet() },
                 )
 
                 // when
@@ -203,6 +209,8 @@ internal class AnidbCrawlerTest {
                     deadEntriesAccess = TestDeadEntriesAccessor,
                     idRangeSelector = testIdRangeSelector,
                     networkController = TestNetworkController,
+                    pendingEntries = TestAnidbPendingEntries,
+                    titleDump = { emptySet() },
                 )
 
                 // when
@@ -253,6 +261,8 @@ internal class AnidbCrawlerTest {
                     deadEntriesAccess = testDeadEntriesAccessor,
                     idRangeSelector = testIdRangeSelector,
                     networkController = TestNetworkController,
+                    pendingEntries = TestAnidbPendingEntries,
+                    titleDump = { emptySet() },
                 )
 
                 // when
@@ -263,6 +273,129 @@ internal class AnidbCrawlerTest {
                 assertThat(invocations).containsExactlyInAnyOrder(
                     "1000",
                 )
+            }
+        }
+
+        @Test
+        fun `keeps an id which the title dump names as pending entry instead of adding it to the dead entries`() {
+            tempDirectory {
+                // given
+                val testMetaDataProviderConfig = object: MetaDataProviderConfig by AnidbConfig {
+                    override fun isTestContext(): Boolean = true
+                }
+
+                val testAppConfig = object : Config by TestAppConfig {
+                    override fun workingDir(metaDataProviderConfig: MetaDataProviderConfig): Directory = tempDir
+                }
+
+                val testIdRangeSelector = object: IdRangeSelector<Int> {
+                    override suspend fun idDownloadList(): List<Int> = listOf(1000, 1001)
+                }
+
+                val testAnimeDownloader = object: Downloader by TestDownloader {
+                    override suspend fun download(id: AnimeId, onDeadEntry: suspend (AnimeId) -> Unit): String {
+                        onDeadEntry.invoke(id)
+                        return EMPTY
+                    }
+                }
+
+                val deadEntries = mutableListOf<AnimeId>()
+                val testDeadEntriesAccessor = object: DeadEntriesAccessor by TestDeadEntriesAccessor {
+                    override suspend fun addDeadEntry(animeId: AnimeId, metaDataProviderConfig: MetaDataProviderConfig) {
+                        deadEntries.add(animeId)
+                    }
+                }
+
+                val pending = mutableListOf<Int>()
+                val testPendingEntries = object: AnidbPendingEntries by TestAnidbPendingEntries {
+                    override suspend fun add(id: Int) {
+                        pending.add(id)
+                    }
+                }
+
+                val crawler = AnidbCrawler(
+                    appConfig = testAppConfig,
+                    metaDataProviderConfig = testMetaDataProviderConfig,
+                    downloader = testAnimeDownloader,
+                    deadEntriesAccess = testDeadEntriesAccessor,
+                    idRangeSelector = testIdRangeSelector,
+                    networkController = TestNetworkController,
+                    pendingEntries = testPendingEntries,
+                    titleDump = { setOf(1000) },
+                )
+
+                // when
+                crawler.start()
+
+                // then
+                assertThat(pending).containsExactly(1000)
+                assertThat(deadEntries).containsExactly("1001")
+            }
+        }
+
+        @Test
+        fun `skips pending entries and only requests those selected for a recheck`() {
+            tempDirectory {
+                // given
+                val testMetaDataProviderConfig = object: MetaDataProviderConfig by AnidbConfig {
+                    override fun isTestContext(): Boolean = true
+                }
+
+                val testAppConfig = object : Config by TestAppConfig {
+                    override fun workingDir(metaDataProviderConfig: MetaDataProviderConfig): Directory = tempDir
+                }
+
+                val testIdRangeSelector = object: IdRangeSelector<Int> {
+                    override suspend fun idDownloadList(): List<Int> = listOf(1, 2, 3, 4)
+                }
+
+                val requested = mutableListOf<AnimeId>()
+                val testAnimeDownloader = object: Downloader by TestDownloader {
+                    override suspend fun download(id: AnimeId, onDeadEntry: suspend (AnimeId) -> Unit): String {
+                        requested.add(id)
+                        return "content $id"
+                    }
+                }
+
+                var recheckRequestedFor = -1
+                val removed = mutableListOf<Int>()
+                val testPendingEntries = object: AnidbPendingEntries by TestAnidbPendingEntries {
+                    override suspend fun all(): Set<Int> = setOf(2, 3)
+                    override suspend fun selectForRecheck(numberOfEntries: Int): Set<Int> {
+                        recheckRequestedFor = numberOfEntries
+                        return setOf(3)
+                    }
+                    override suspend fun remove(id: Int) {
+                        removed.add(id)
+                    }
+                }
+
+                val testConfigRegistry = object: ConfigRegistry by TestConfigRegistry {
+                    override fun int(key: String): Int? = when (key) {
+                        "modb.app.crawler.deadEntriesToRecheck" -> 1
+                        else -> null
+                    }
+                }
+
+                val crawler = AnidbCrawler(
+                    appConfig = testAppConfig,
+                    metaDataProviderConfig = testMetaDataProviderConfig,
+                    downloader = testAnimeDownloader,
+                    deadEntriesAccess = TestDeadEntriesAccessor,
+                    idRangeSelector = testIdRangeSelector,
+                    networkController = TestNetworkController,
+                    pendingEntries = testPendingEntries,
+                    titleDump = { setOf(1, 2, 3, 4) },
+                    configRegistry = testConfigRegistry,
+                )
+
+                // when
+                crawler.start()
+
+                // then
+                assertThat(recheckRequestedFor).isEqualTo(1)
+                assertThat(requested).containsExactlyInAnyOrder("1", "3", "4")
+                assertThat(removed).contains(3)
             }
         }
 
@@ -295,6 +428,8 @@ internal class AnidbCrawlerTest {
                     deadEntriesAccess = TestDeadEntriesAccessor,
                     idRangeSelector = testIdRangeSelector,
                     networkController = TestNetworkController,
+                    pendingEntries = TestAnidbPendingEntries,
+                    titleDump = { emptySet() },
                 )
 
                 // when
@@ -334,6 +469,8 @@ internal class AnidbCrawlerTest {
                     deadEntriesAccess = TestDeadEntriesAccessor,
                     idRangeSelector = testIdRangeSelector,
                     networkController = TestNetworkController,
+                    pendingEntries = TestAnidbPendingEntries,
+                    titleDump = { emptySet() },
                 )
 
                 // when
@@ -371,6 +508,8 @@ internal class AnidbCrawlerTest {
                     deadEntriesAccess = TestDeadEntriesAccessor,
                     idRangeSelector = testIdRangeSelector,
                     networkController = TestNetworkController,
+                    pendingEntries = TestAnidbPendingEntries,
+                    titleDump = { emptySet() },
                 )
 
                 // when
@@ -425,6 +564,8 @@ internal class AnidbCrawlerTest {
                     deadEntriesAccess = TestDeadEntriesAccessor,
                     idRangeSelector = testIdRangeSelector,
                     networkController = testNetworkController,
+                    pendingEntries = TestAnidbPendingEntries,
+                    titleDump = { emptySet() },
                 )
 
                 // when
@@ -468,6 +609,8 @@ internal class AnidbCrawlerTest {
                     deadEntriesAccess = TestDeadEntriesAccessor,
                     idRangeSelector = testIdRangeSelector,
                     networkController = TestNetworkController,
+                    pendingEntries = TestAnidbPendingEntries,
+                    titleDump = { emptySet() },
                 )
 
                 // when
@@ -529,6 +672,8 @@ internal class AnidbCrawlerTest {
                     deadEntriesAccess = testDeadEntriesAccessor,
                     idRangeSelector = testIdRangeSelector,
                     networkController = testNetworkController,
+                    pendingEntries = TestAnidbPendingEntries,
+                    titleDump = { emptySet() },
                 )
 
                 // when
@@ -580,6 +725,8 @@ internal class AnidbCrawlerTest {
                 deadEntriesAccess = TestDeadEntriesAccessor,
                 idRangeSelector = testIdRangeSelector,
                 networkController = testNetworkController,
+                pendingEntries = TestAnidbPendingEntries,
+                titleDump = { emptySet() },
                 configRegistry = testConfigRegistry,
             )
         }

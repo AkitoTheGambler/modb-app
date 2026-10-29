@@ -7,6 +7,11 @@ downloadControlStateDirectory = ""
 # Crawlers to skip.
 disabledCrawlers = ["anidb.net"]
 
+[modb.app.crawler]
+# Dead entries requested again per run, highest IDs first (AniList, Kitsu, MAL).
+# For AniDB the pending entries instead, longest unchecked first. 0 = none.
+deadEntriesToRecheck = 0
+
 [modb.anidb]
 # Client registered for the AniDB HTTP API.
 client = ""
