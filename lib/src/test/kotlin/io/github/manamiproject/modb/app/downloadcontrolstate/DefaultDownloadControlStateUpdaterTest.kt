@@ -30,6 +30,7 @@ import io.github.manamiproject.modb.test.tempDirectory
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Nested
 import java.net.URI
+import java.util.concurrent.atomic.AtomicInteger
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
@@ -741,7 +742,7 @@ internal class DefaultDownloadControlStateUpdaterTest {
                     override fun clock(): Clock = Clock.fixed(Instant.parse("2021-11-02T17:55:43.035Z"), ZoneId.systemDefault())
                 }
 
-                var invocations = 0
+                val invocations = AtomicInteger(0)
                 var hasBeenInvoked = false
                 val testDownloadControlStateAccessor = object: DownloadControlStateAccessor by TestDownloadControlStateAccessor {
                     override suspend fun allDcsEntries(metaDataProviderConfig: MetaDataProviderConfig): List<DownloadControlStateEntry> = emptyList()
@@ -752,7 +753,7 @@ internal class DefaultDownloadControlStateUpdaterTest {
                     }
                     override suspend fun dcsEntryExists(metaDataProviderConfig: MetaDataProviderConfig, animeId: AnimeId): Boolean = false
                     override suspend fun createOrUpdate(metaDataProviderConfig: MetaDataProviderConfig, animeId: AnimeId, downloadControlStateEntry: DownloadControlStateEntry): Boolean {
-                        invocations++
+                        invocations.incrementAndGet()
                         return true
                     }
                 }
@@ -766,7 +767,7 @@ internal class DefaultDownloadControlStateUpdaterTest {
                 downloadControlStateUpdater.updateAll()
 
                 // then
-                assertThat(invocations).isEqualTo(2)
+                assertThat(invocations.get()).isEqualTo(2)
                 assertThat(hasBeenInvoked).isTrue()
             }
         }
