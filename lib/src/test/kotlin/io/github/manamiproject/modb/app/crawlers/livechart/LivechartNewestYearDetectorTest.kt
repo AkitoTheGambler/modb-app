@@ -84,7 +84,7 @@ internal class LivechartNewestYearDetectorTest {
                 }
 
                 // then
-                assertThat(result).hasMessage("Unable to extract headers.")
+                assertThat(result).hasMessage("No list of years found on [http://localhost:8080/highest-id], page title [none]. Most likely a block or maintenance page, or the layout has changed.")
             }
         }
     }
