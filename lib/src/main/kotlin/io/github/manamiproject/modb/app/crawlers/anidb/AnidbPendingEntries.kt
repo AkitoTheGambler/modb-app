@@ -16,8 +16,8 @@ import kotlin.io.path.readLines
 import kotlin.io.path.writeText
 
 /**
- * AniDB entries which the title dump names, but which the API doesn't serve yet, most likely because their addition
- * is still pending approval.
+ * AniDB entries whose addition is still pending approval. The website says so, the API only refuses them, while the
+ * title dump already names them.
  *
  * Such an id is neither dead nor downloadable. As a dead entry it would leave the dead entries list with every new
  * title dump and be requested again on every run, only to be refused again. Kept apart, it is skipped until a recheck
@@ -108,7 +108,7 @@ class DefaultAnidbPendingEntries(
 
     override suspend fun add(id: Int) = update { current ->
         if (id !in current) {
-            log.info { "[anidb.net] doesn't serve [anidbId=$id] yet, although the title dump names it. Keeping it as pending entry." }
+            log.info { "Keeping [anidbId=$id] as pending entry, its addition is most likely not approved yet." }
         }
 
         current[id] = LocalDate.now(appConfig.clock())
@@ -155,7 +155,7 @@ class DefaultAnidbPendingEntries(
     private suspend fun save(current: Map<Int, LocalDate>) = withContext(LIMITED_FS) {
         val file = file()
         val content = buildString {
-            appendLine("$COMMENT AniDB ids which the title dump names, but the API doesn't serve yet. Format: id last-check")
+            appendLine("$COMMENT AniDB ids whose addition is still pending. Format: id last-check")
             current.toSortedMap().forEach { (id, lastCheck) -> appendLine("$id $lastCheck") }
         }
 
