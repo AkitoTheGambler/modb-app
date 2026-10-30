@@ -7,8 +7,11 @@ downloadControlStateDirectory = ""
 # Crawlers to skip.
 disabledCrawlers = ["anidb.net"]
 
+[modb.app.challenge]
+solverUrl = "http://localhost:8191/v1"
+
 [modb.app.crawler]
-# Dead entries requested again per run, highest IDs first (AniList, Kitsu, MAL, AniDB).
+# Dead/pending entries requested again per run, highest IDs first (AniList, Kitsu, MAL, AniDB).
 deadEntriesToRecheck = 0
 
 [modb.core.httpclient]
@@ -23,3 +26,4 @@ client = ""
 clientver = ""
 # Retries while AniDB answers "banned", before the AniDB crawler stops.
 banRetries = 5
+
