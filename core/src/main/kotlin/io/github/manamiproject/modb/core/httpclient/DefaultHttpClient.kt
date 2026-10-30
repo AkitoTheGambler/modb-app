@@ -172,6 +172,7 @@ public class DefaultHttpClient(
         var retryCase: RetryCase = NoRetry
         var responseOrException: Any = HttpResponse(100, EMPTY)
         var retryAfter: Duration? = null
+        var reason = EMPTY
 
         do {
             if (retryCase !is NoRetry) {
@@ -199,7 +200,7 @@ public class DefaultHttpClient(
                     okhttpClient = currentClient.newBuilder().build()
                 }
 
-                wait(request, retryCase, attempt, retryAfter, reasonOf(responseOrException))
+                wait(request, retryCase, attempt, retryAfter, reason)
             }
 
             responseOrException = safelyExecute {
@@ -216,6 +217,7 @@ public class DefaultHttpClient(
                     log.debug { "[${request.method} ${request.url}] Requires retry." }
 
                     retryAfter = null
+                    reason = reasonOf(responseOrException)
 
                     if (responseOrException is HttpResponse) {
                         retryAfter = parseRetryAfter(responseOrException.headers)
@@ -246,7 +248,14 @@ public class DefaultHttpClient(
     }
 
     private fun reasonOf(responseOrException: Any): String = when (responseOrException) {
-        is HttpResponse -> "HTTP ${responseOrException.code}"
+        // The body is only looked at if a retry case has read it already. Reading it here would download pages
+        // which are going to be discarded anyway.
+        is HttpResponse -> when {
+            responseOrException.isBodyInputStreamExhausted() && runCatching { responseOrException.isCloudflareChallenge() }.getOrDefault(false) -> {
+                "HTTP ${responseOrException.code}, Cloudflare challenge"
+            }
+            else -> "HTTP ${responseOrException.code}"
+        }
         is Throwable -> listOfNotNull(responseOrException::class.simpleName, responseOrException.message).joinToString(": ")
         else -> responseOrException.javaClass.simpleName
     }

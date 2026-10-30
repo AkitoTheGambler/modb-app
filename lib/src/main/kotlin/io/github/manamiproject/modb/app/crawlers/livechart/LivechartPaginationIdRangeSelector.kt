@@ -1,5 +1,6 @@
 package io.github.manamiproject.modb.app.crawlers.livechart
 
+import io.github.manamiproject.modb.core.httpclient.CloudflareChallengeRetryCase
 import io.github.manamiproject.modb.app.convfiles.AlreadyDownloadedIdsFinder
 import io.github.manamiproject.modb.app.convfiles.DefaultAlreadyDownloadedIdsFinder
 import io.github.manamiproject.modb.app.crawlers.PaginationIdRangeSelector
@@ -35,7 +36,7 @@ import kotlin.time.toDuration
  */
 class LivechartPaginationIdRangeSelector(
     private val metaDataProviderConfig: MetaDataProviderConfig = LivechartPaginationIdRangeSelectorConfig,
-    private val httpClient: HttpClient = SuspendableHttpClient(),
+    private val httpClient: HttpClient = SuspendableHttpClient().addRetryCases(CloudflareChallengeRetryCase),
     private val extractor: DataExtractor = XmlDataExtractor,
     private val downloadControlStateScheduler: DownloadControlStateScheduler = DefaultDownloadControlStateScheduler.instance,
     private val alreadyDownloadedIdsFinder: AlreadyDownloadedIdsFinder = DefaultAlreadyDownloadedIdsFinder.instance,
