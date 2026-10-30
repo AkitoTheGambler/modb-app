@@ -16,6 +16,8 @@ deadEntriesToRecheck = 0
 maxRetries = 5
 
 [modb.anidb]
+# api | website
+source = "api"
 # Client registered for the AniDB HTTP API.
 client = ""
 clientver = ""
