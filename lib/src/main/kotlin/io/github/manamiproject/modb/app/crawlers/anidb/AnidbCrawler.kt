@@ -296,7 +296,7 @@ class AnidbCrawler(
         private const val DEFAULT_MAX_CONNECTION_CHANGES = 5
         private const val DEFAULT_ROUTE_FAILURE_WAIT_IN_SECONDS = 5
         private const val DEFAULT_MIN_WAIT_IN_MILLISECONDS = 2000
-        private const val DEFAULT_MAX_WAIT_IN_MILLISECONDS = 2500
+        private const val DEFAULT_MAX_WAIT_IN_MILLISECONDS = 3000
         private const val DEFAULT_PAGES_PER_CONNECTION = 0
 
         /**
