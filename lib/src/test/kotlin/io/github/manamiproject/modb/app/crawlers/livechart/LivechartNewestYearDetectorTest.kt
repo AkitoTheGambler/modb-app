@@ -50,6 +50,36 @@ internal class LivechartNewestYearDetectorTest {
         }
 
         @Test
+        fun `correctly extracts highest id from the layout of october 2026`() {
+            runTest {
+                // given
+                val testMetaDataProviderConfig = object: MetaDataProviderConfig by LivechartNewestYearDetectorConfig {
+                    override fun buildDataDownloadLink(id: String): URI = URI("http://localhost:8080/highest-id")
+                }
+
+                val testHttpClient = object: HttpClient by TestHttpClient {
+                    override suspend fun get(url: URL, headers: Map<String, Collection<String>>): HttpResponse {
+                        return HttpResponse(
+                            code = 200,
+                            body = loadTestResource<ByteArray>("crawler/livechart/LivechartNewestYearDetectorTest/charts-2026-10.html"),
+                        )
+                    }
+                }
+
+                val livechartHighestIdDetector = LivechartNewestYearDetector(
+                    metaDataProviderConfig = testMetaDataProviderConfig,
+                    httpClient = testHttpClient,
+                )
+
+                // when
+                val result = livechartHighestIdDetector.detectHighestId()
+
+                // then
+                assertThat(result).isEqualTo(2027)
+            }
+        }
+
+        @Test
         fun `throws exception, because the element couldn't be found`() {
             runTest {
                 // given
