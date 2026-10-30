@@ -1,6 +1,7 @@
 package io.github.manamiproject.modb.app.crawlers.anidb
 
 import io.github.manamiproject.modb.anidb.AnidbConfig
+import io.github.manamiproject.modb.anidb.AnidbWebsiteConfig
 import io.github.manamiproject.modb.app.TestAppConfig
 import io.github.manamiproject.modb.app.TestDeadEntriesAccessor
 import io.github.manamiproject.modb.app.TestDownloadControlStateAccessor
@@ -117,6 +118,35 @@ internal class AnidbTitlesDumpHighestIdDetectorTest {
                 assertThat(result).isEqualTo(5)
                 assertThat(replacedWith).containsExactlyInAnyOrder("2", "4")
                 assertThat(replacedFor).isEqualTo(AnidbConfig)
+            }
+        }
+
+        @Test
+        fun `keeps the dead entries under the website config when the website is the source`() {
+            tempDirectory {
+                // given
+                var replacedWith = emptySet<AnimeId>()
+                var replacedFor: MetaDataProviderConfig? = null
+                val testDeadEntriesAccessor = object: DeadEntriesAccessor by TestDeadEntriesAccessor {
+                    override suspend fun replaceDeadEntries(animeIds: Set<AnimeId>, metaDataProviderConfig: MetaDataProviderConfig) {
+                        replacedWith = animeIds
+                        replacedFor = metaDataProviderConfig
+                    }
+                }
+
+                val detector = detector(
+                    tempDir = tempDir,
+                    httpClient = clientReturning(smallDump),
+                    deadEntriesAccessor = testDeadEntriesAccessor,
+                    metaDataProviderConfig = AnidbWebsiteConfig,
+                )
+
+                // when
+                detector.detectHighestId()
+
+                // then
+                assertThat(replacedWith).containsExactlyInAnyOrder("2", "4")
+                assertThat(replacedFor).isEqualTo(AnidbWebsiteConfig)
             }
         }
 
@@ -260,6 +290,7 @@ internal class AnidbTitlesDumpHighestIdDetectorTest {
             override suspend fun replaceDeadEntries(animeIds: Set<AnimeId>, metaDataProviderConfig: MetaDataProviderConfig) { }
         },
         highestIdAlreadyInDataset: Int = 0,
+        metaDataProviderConfig: MetaDataProviderConfig = AnidbConfig,
     ): AnidbTitlesDumpHighestIdDetector {
         val testAppConfig = object: Config by TestAppConfig {
             override fun downloadControlStateDirectory(): Directory = tempDir
@@ -275,6 +306,7 @@ internal class AnidbTitlesDumpHighestIdDetectorTest {
             httpClient = httpClient,
             deadEntriesAccessor = deadEntriesAccessor,
             downloadControlStateAccessor = testDownloadControlStateAccessor,
+            metaDataProviderConfig = metaDataProviderConfig,
         )
     }
 
