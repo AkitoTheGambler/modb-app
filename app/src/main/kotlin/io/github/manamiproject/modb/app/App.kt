@@ -1,6 +1,7 @@
 package io.github.manamiproject.modb.app
 
 import io.github.manamiproject.modb.anidb.AnidbBannedException
+import io.github.manamiproject.modb.anidb.CrawlerDetectedException
 import io.github.manamiproject.modb.anidb.AnidbConfig
 import io.github.manamiproject.modb.anisearch.AnisearchConfig
 import io.github.manamiproject.modb.anisearch.AnisearchRelationsConfig
@@ -213,6 +214,9 @@ private fun CoroutineScope.crawl(hostname: String, disabled: Set<String>, jobs: 
         } catch (_: AnidbBannedException) {
             // Expected while a ban lasts, so a stack trace adds nothing.
             log.error("Crawler for [$hostname] stopped, because AniDB still answers with [banned] after all retries. Wait until the ban has been lifted or add [$hostname] to [modb.app.disabledCrawlers].")
+        } catch (_: CrawlerDetectedException) {
+            // AniDB refusing the connection is an answer, not a fault in the code, so a stack trace adds nothing.
+            log.error("Crawler for [$hostname] stopped, because AniDB refuses the connection (AntiLeech or 403). Try again later or add [$hostname] to [modb.app.disabledCrawlers].")
         } catch (e: Throwable) {
             log.error("Crawler for [$hostname] stopped: ${e.message}", e)
         }
