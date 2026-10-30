@@ -63,7 +63,8 @@ class LivechartPaginationIdRangeSelector(
             }
 
             val data = extractor.extract(response.checkedBody(this::class), mapOf(
-                "animeIdList" to "//article[@class='anime']/@data-anime-id",
+                // Any card carrying an id: the class of the card changed with the redesign of october 2026.
+                "animeIdList" to "//article[@data-anime-id]/@data-anime-id",
                 "emptyMessage" to "//section[@data-anime-card-list-target='emptyMessage']/text()",
             ))
 
