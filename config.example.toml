@@ -8,6 +8,8 @@ downloadControlStateDirectory = ""
 disabledCrawlers = ["anidb.net"]
 
 [modb.anidb]
+# api | website
+source = "api"
 # Client registered for the AniDB HTTP API.
 client = ""
 clientver = ""
