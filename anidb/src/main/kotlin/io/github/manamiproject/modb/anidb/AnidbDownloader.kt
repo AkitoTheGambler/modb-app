@@ -39,7 +39,12 @@ public class AnidbDownloader(
         check(response.isOk() || response.code == 404) { "Unexpected response code [anidbId=$id], [responseCode=${response.code}]" }
 
         return@withContext when {
-            responseChecker.isHentai() || responseChecker.isRemovedFromAnidb() -> {
+            // 18+ pages show no data without an account: skipped, neither dead nor pending
+            responseChecker.isHentai() -> {
+                log.info { "Skipping [anidbId=$id], because it is 18+ restricted." }
+                EMPTY
+            }
+            responseChecker.isRemovedFromAnidb() -> {
                 log.info { "Adding [anidbId=$id] to dead-entries list" }
                 onDeadEntry.invoke(id)
                 EMPTY
