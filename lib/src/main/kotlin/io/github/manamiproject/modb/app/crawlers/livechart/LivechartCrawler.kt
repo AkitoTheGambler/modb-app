@@ -1,5 +1,6 @@
 package io.github.manamiproject.modb.app.crawlers.livechart
 
+import io.github.manamiproject.modb.core.httpclient.CloudflareChallengeRetryCase
 import io.github.manamiproject.modb.app.config.AppConfig
 import io.github.manamiproject.modb.app.config.Config
 import io.github.manamiproject.modb.app.convfiles.AlreadyDownloadedIdsFinder
@@ -56,7 +57,7 @@ class LivechartCrawler(
     private val paginationIdRangeSelector: PaginationIdRangeSelector<String> = LivechartPaginationIdRangeSelector.instance,
     private val alreadyDownloadedIdsFinder: AlreadyDownloadedIdsFinder = DefaultAlreadyDownloadedIdsFinder.instance,
     private val downloader: Downloader = FaultTolerantDownloader(
-        downloader = LivechartDownloader(httpClient = SuspendableHttpClient()),
+        downloader = LivechartDownloader(httpClient = SuspendableHttpClient().addRetryCases(CloudflareChallengeRetryCase)),
         hostname = metaDataProviderConfig.hostname(),
     ),
 ): Crawler {

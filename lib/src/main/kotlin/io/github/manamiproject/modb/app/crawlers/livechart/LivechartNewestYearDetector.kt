@@ -1,5 +1,6 @@
 package io.github.manamiproject.modb.app.crawlers.livechart
 
+import io.github.manamiproject.modb.core.httpclient.CloudflareChallengeRetryCase
 import io.github.manamiproject.modb.app.crawlers.HighestIdDetector
 import io.github.manamiproject.modb.app.extensions.checkedBody
 import io.github.manamiproject.modb.app.network.SuspendableHttpClient
@@ -24,7 +25,7 @@ import kotlin.time.toDuration
  */
 class LivechartNewestYearDetector(
     private val metaDataProviderConfig: MetaDataProviderConfig = LivechartNewestYearDetectorConfig,
-    private val httpClient: HttpClient = SuspendableHttpClient(),
+    private val httpClient: HttpClient = SuspendableHttpClient().addRetryCases(CloudflareChallengeRetryCase),
     private val extractor: DataExtractor = XmlDataExtractor,
 ): HighestIdDetector {
 
