@@ -156,7 +156,7 @@ internal class AnidbDownloaderTest : MockServerTestCase<WireMockServer> by WireM
         }
 
         @Test
-        fun `invoke onDeadEntry if the response body indicates a hentai`() {
+        fun `skips an 18+ restricted entry without invoking onDeadEntry`() {
             runTest {
                 // given
                 val id = "11376"
@@ -189,7 +189,7 @@ internal class AnidbDownloaderTest : MockServerTestCase<WireMockServer> by WireM
 
                 // then
                 assertThat(result).isEmpty()
-                assertThat(deadEntry).isEqualTo(id)
+                assertThat(deadEntry).isEmpty()
             }
         }
 

@@ -181,8 +181,8 @@ class AnidbCrawler(
 
     /**
      * An id which the API refuses, but the title dump names, is not dead. Its addition is most likely still pending.
-     * The website only reports an entry as not served when the page says why (hentai, removed from anidb). That is
-     * final, even though the title dump still names hentai, so it always becomes a dead entry.
+     * The website only reports an entry as not served when the page says it has been removed from anidb. That is
+     * final, so it always becomes a dead entry. (18+ entries are skipped by the downloader, they never get here.)
      */
     private suspend fun handleNotServed(animeId: AnimeId) {
         val id = animeId.toIntOrNull()

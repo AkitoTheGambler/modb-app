@@ -335,7 +335,7 @@ internal class AnidbCrawlerTest {
         }
 
         @Test
-        fun `on the website, hentai and removed entries are dead even though the title dump names them`() {
+        fun `on the website, an entry reported as removed is dead even though the title dump names it`() {
             tempDirectory {
                 // given
                 val testMetaDataProviderConfig = object: MetaDataProviderConfig by AnidbWebsiteConfig {
