@@ -279,9 +279,10 @@ internal class LivechartCrawlerTest {
                 }
 
                 val testPaginationIdRangeSelector = object: PaginationIdRangeSelector<String> by TestPaginationIdRangeSelectorString {
-                    override suspend fun idDownloadList(page: String): List<AnimeId> = listOf(
-                        "paginated-entry-$page",
-                    )
+                    override suspend fun idDownloadList(page: String): List<AnimeId> = when (page) {
+                        "tba" -> emptyList() // rechecked on every run, which has a test of its own
+                        else -> listOf("paginated-entry-$page")
+                    }
                 }
 
                 val testAlreadyDownloadedIdsFinder = object: AlreadyDownloadedIdsFinder by TestAlreadyDownloadedIdsFinder {
@@ -353,9 +354,10 @@ internal class LivechartCrawlerTest {
                 }
 
                 val testPaginationIdRangeSelector = object: PaginationIdRangeSelector<String> by TestPaginationIdRangeSelectorString {
-                    override suspend fun idDownloadList(page: String): List<AnimeId> = listOf(
-                        "paginated-entry-$page",
-                    )
+                    override suspend fun idDownloadList(page: String): List<AnimeId> = when (page) {
+                        "tba" -> emptyList() // rechecked on every run, which has a test of its own
+                        else -> listOf("paginated-entry-$page")
+                    }
                 }
 
                 val testAlreadyDownloadedIdsFinder = object: AlreadyDownloadedIdsFinder by TestAlreadyDownloadedIdsFinder {
@@ -431,9 +433,10 @@ internal class LivechartCrawlerTest {
                 }
 
                 val testPaginationIdRangeSelector = object: PaginationIdRangeSelector<String> by TestPaginationIdRangeSelectorString {
-                    override suspend fun idDownloadList(page: String): List<AnimeId> = listOf(
-                        "paginated-entry-$page",
-                    )
+                    override suspend fun idDownloadList(page: String): List<AnimeId> = when (page) {
+                        "tba" -> emptyList() // rechecked on every run, which has a test of its own
+                        else -> listOf("paginated-entry-$page")
+                    }
                 }
 
                 val testAlreadyDownloadedIdsFinder = object: AlreadyDownloadedIdsFinder by TestAlreadyDownloadedIdsFinder {
