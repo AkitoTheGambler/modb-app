@@ -199,7 +199,7 @@ public class DefaultHttpClient(
                     okhttpClient = currentClient.newBuilder().build()
                 }
 
-                wait(request, retryCase, attempt, retryAfter)
+                wait(request, retryCase, attempt, retryAfter, reasonOf(responseOrException))
             }
 
             responseOrException = safelyExecute {
@@ -245,18 +245,20 @@ public class DefaultHttpClient(
         }
     }
 
-    @KoverIgnore
-    private suspend fun wait(request: Request, retryCase: RetryCase, attempt: Int, retryAfter: Duration?) {
-        if (!isTestContext) {
-            val duration = when (retryAfter) {
-                null -> retryCase.waitDuration(attempt)
-                else -> {
-                    log.info { "Server asked to retry [${request.method} ${request.url}] after [$retryAfter]." }
-                    retryAfter
-                }
-            }
+    private fun reasonOf(responseOrException: Any): String = when (responseOrException) {
+        is HttpResponse -> "HTTP ${responseOrException.code}"
+        is Throwable -> listOfNotNull(responseOrException::class.simpleName, responseOrException.message).joinToString(": ")
+        else -> responseOrException.javaClass.simpleName
+    }
 
-            log.trace { "Initiating waiting time of [$duration] for retry of [${request.method} ${request.url}]." }
+    @KoverIgnore
+    private suspend fun wait(request: Request, retryCase: RetryCase, attempt: Int, retryAfter: Duration?, reason: String) {
+        if (!isTestContext) {
+            val duration = retryAfter ?: retryCase.waitDuration(attempt)
+            val askedByServer = if (retryAfter != null) ", as the server asked" else EMPTY
+
+            // A wait can last minutes, so it is logged at info level: without it a waiting crawler looks like a hung one.
+            log.info { "Retrying [${request.method} ${request.url}] in [${duration.inWholeSeconds}s] (attempt $attempt/${retryBehavior.maxAttempts}) after [$reason]$askedByServer." }
             delay(duration)
         }
     }
