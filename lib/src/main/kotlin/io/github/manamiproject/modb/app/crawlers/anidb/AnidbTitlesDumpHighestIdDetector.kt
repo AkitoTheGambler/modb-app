@@ -1,6 +1,5 @@
 package io.github.manamiproject.modb.app.crawlers.anidb
 
-import io.github.manamiproject.modb.anidb.AnidbConfig
 import io.github.manamiproject.modb.app.config.AppConfig
 import io.github.manamiproject.modb.app.config.Config
 import io.github.manamiproject.modb.app.crawlers.HighestIdDetector
@@ -8,6 +7,7 @@ import io.github.manamiproject.modb.app.dataset.DeadEntriesAccessor
 import io.github.manamiproject.modb.app.dataset.DefaultDeadEntriesAccessor
 import io.github.manamiproject.modb.app.downloadcontrolstate.DefaultDownloadControlStateAccessor
 import io.github.manamiproject.modb.app.downloadcontrolstate.DownloadControlStateAccessor
+import io.github.manamiproject.modb.core.config.MetaDataProviderConfig
 import io.github.manamiproject.modb.core.coroutines.ModbDispatchers.LIMITED_NETWORK
 import io.github.manamiproject.modb.core.extensions.RegularFile
 import io.github.manamiproject.modb.core.extensions.regularFileExists
@@ -49,6 +49,7 @@ import kotlin.io.path.writeBytes
  * @property deadEntriesAccessor Access to dead entries files.
  * @property downloadControlStateAccessor Access to DCS files.
  * @property maxAge Age after which the kept dump is downloaded again.
+ * @property metaDataProviderConfig Config of the configured AniDB source, under which the dead entries are kept.
  */
 class AnidbTitlesDumpHighestIdDetector(
     private val appConfig: Config = AppConfig.instance,
@@ -57,6 +58,7 @@ class AnidbTitlesDumpHighestIdDetector(
     private val deadEntriesAccessor: DeadEntriesAccessor = DefaultDeadEntriesAccessor.instance,
     private val downloadControlStateAccessor: DownloadControlStateAccessor = DefaultDownloadControlStateAccessor.instance,
     private val maxAge: Duration = Duration.ofDays(1),
+    private val metaDataProviderConfig: MetaDataProviderConfig = AnidbSource.config(),
 ): HighestIdDetector {
 
     private val dumpAccess = Mutex()
@@ -123,10 +125,10 @@ class AnidbTitlesDumpHighestIdDetector(
     private suspend fun updateDeadEntries(ids: Set<Int>, highestId: Int) {
         // Each dead entry removes the corresponding DCS file. If the dump names fewer anime than
         // the dataset already has, it is more likely to be broken than AniDB having deleted them.
-        val highestIdAlreadyInDataset = downloadControlStateAccessor.highestIdAlreadyInDataset(AnidbConfig)
+        val highestIdAlreadyInDataset = downloadControlStateAccessor.highestIdAlreadyInDataset(metaDataProviderConfig)
 
         if (highestId < highestIdAlreadyInDataset) {
-            log.warn { "Not updating the [${AnidbConfig.hostname()}] dead entries, because the highest id of the title dump [$highestId] is smaller than the highest id already in the dataset [$highestIdAlreadyInDataset]." }
+            log.warn { "Not updating the [${metaDataProviderConfig.hostname()}] dead entries, because the highest id of the title dump [$highestId] is smaller than the highest id already in the dataset [$highestIdAlreadyInDataset]." }
             return
         }
 
@@ -135,7 +137,7 @@ class AnidbTitlesDumpHighestIdDetector(
             .map { it.toString() }
             .toSet()
 
-        deadEntriesAccessor.replaceDeadEntries(deadEntries, AnidbConfig)
+        deadEntriesAccessor.replaceDeadEntries(deadEntries, metaDataProviderConfig)
     }
 
     private fun format(instant: Instant): String = TIMESTAMP_FORMAT.format(instant.atZone(appConfig.clock().zone))
