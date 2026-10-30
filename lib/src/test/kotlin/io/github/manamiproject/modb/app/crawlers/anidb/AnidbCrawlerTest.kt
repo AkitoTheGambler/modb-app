@@ -1,6 +1,7 @@
 package io.github.manamiproject.modb.app.crawlers.anidb
 
 import io.github.manamiproject.modb.anidb.AnidbConfig
+import io.github.manamiproject.modb.anidb.AnidbWebsiteConfig
 import io.github.manamiproject.modb.anidb.AnidbDownloader.Companion.ANIDB_PENDING_FILE_INDICATOR
 import io.github.manamiproject.modb.anidb.CrawlerDetectedException
 import io.github.manamiproject.modb.app.*
@@ -330,6 +331,68 @@ internal class AnidbCrawlerTest {
                 // then
                 assertThat(pending).containsExactly(1000)
                 assertThat(deadEntries).containsExactly("1001")
+            }
+        }
+
+        @Test
+        fun `on the website, hentai and removed entries are dead even though the title dump names them`() {
+            tempDirectory {
+                // given
+                val testMetaDataProviderConfig = object: MetaDataProviderConfig by AnidbWebsiteConfig {
+                    override fun isTestContext(): Boolean = true
+                }
+
+                val testAppConfig = object : Config by TestAppConfig {
+                    override fun workingDir(metaDataProviderConfig: MetaDataProviderConfig): Directory = tempDir
+                }
+
+                val testIdRangeSelector = object: IdRangeSelector<Int> {
+                    override suspend fun idDownloadList(): List<Int> = listOf(1000, 1001)
+                }
+
+                val testAnimeDownloader = object: Downloader by TestDownloader {
+                    override suspend fun download(id: AnimeId, onDeadEntry: suspend (AnimeId) -> Unit): String {
+                        onDeadEntry.invoke(id)
+                        return EMPTY
+                    }
+                }
+
+                val deadEntries = mutableListOf<AnimeId>()
+                val testDeadEntriesAccessor = object: DeadEntriesAccessor by TestDeadEntriesAccessor {
+                    override suspend fun addDeadEntry(animeId: AnimeId, metaDataProviderConfig: MetaDataProviderConfig) {
+                        deadEntries.add(animeId)
+                    }
+                }
+
+                val added = mutableListOf<Int>()
+                val removed = mutableListOf<Int>()
+                val testPendingEntries = object: AnidbPendingEntries by TestAnidbPendingEntries {
+                    override suspend fun add(id: Int) {
+                        added.add(id)
+                    }
+                    override suspend fun remove(id: Int) {
+                        removed.add(id)
+                    }
+                }
+
+                val crawler = AnidbCrawler(
+                    appConfig = testAppConfig,
+                    metaDataProviderConfig = testMetaDataProviderConfig,
+                    downloader = testAnimeDownloader,
+                    deadEntriesAccess = testDeadEntriesAccessor,
+                    idRangeSelector = testIdRangeSelector,
+                    networkController = TestNetworkController,
+                    pendingEntries = testPendingEntries,
+                    titleDump = { setOf(1000) },
+                )
+
+                // when
+                crawler.start()
+
+                // then
+                assertThat(added).isEmpty()
+                assertThat(removed).containsExactly(1000, 1001)
+                assertThat(deadEntries).containsExactly("1000", "1001")
             }
         }
 

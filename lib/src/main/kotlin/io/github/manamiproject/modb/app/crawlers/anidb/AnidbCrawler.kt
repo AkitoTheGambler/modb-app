@@ -5,6 +5,7 @@ import io.github.manamiproject.modb.anidb.AnidbApiDownloader
 import io.github.manamiproject.modb.anidb.AnidbDownloader
 import io.github.manamiproject.modb.anidb.AnidbDownloader.Companion.ANIDB_PENDING_FILE_INDICATOR
 import io.github.manamiproject.modb.anidb.AnidbBannedException
+import io.github.manamiproject.modb.anidb.AnidbWebsiteConfig
 import io.github.manamiproject.modb.anidb.CrawlerDetectedException
 import io.github.manamiproject.modb.app.config.AppConfig
 import io.github.manamiproject.modb.app.config.Config
@@ -180,13 +181,17 @@ class AnidbCrawler(
 
     /**
      * An id which the API refuses, but the title dump names, is not dead. Its addition is most likely still pending.
+     * The website only reports an entry as not served when the page says why (hentai, removed from anidb). That is
+     * final, even though the title dump still names hentai, so it always becomes a dead entry.
      */
     private suspend fun handleNotServed(animeId: AnimeId) {
         val id = animeId.toIntOrNull()
+        val fromWebsite = metaDataProviderConfig.fileSuffix() == AnidbWebsiteConfig.fileSuffix()
 
-        if (id != null && id in titleDumpIds()) {
+        if (!fromWebsite && id != null && id in titleDumpIds()) {
             pendingEntries.add(id)
         } else {
+            id?.let { pendingEntries.remove(it) }
             deadEntriesAccess.addDeadEntry(animeId, metaDataProviderConfig)
         }
     }
