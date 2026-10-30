@@ -21,9 +21,15 @@ import kotlinx.coroutines.test.runTest
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatNoException
 import org.junit.jupiter.api.Nested
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset.UTC
 import kotlin.test.Test
 
 internal class LivechartCrawlerTest {
+
+    // Lies after every newest year of these tests, so only "tba" is rechecked.
+    private val farFuture = Clock.fixed(Instant.parse("3000-01-01T00:00:00Z"), UTC)
 
     @Nested
     inner class StartTests {
@@ -69,6 +75,7 @@ internal class LivechartCrawlerTest {
                     deadEntriesAccessor = TestDeadEntriesAccessor,
                     lastPageMemorizer = testLastPageMemorizer,
                     newestYearDetector = testNewestYearDetector,
+                    clock = { farFuture },
                     paginationIdRangeSelector = testPaginationIdRangeSelector,
                     alreadyDownloadedIdsFinder = testAlreadyDownloadedIdsFinder,
                     downloader = TestDownloader,
@@ -138,6 +145,7 @@ internal class LivechartCrawlerTest {
                     deadEntriesAccessor = TestDeadEntriesAccessor,
                     lastPageMemorizer = testLastPageMemorizer,
                     newestYearDetector = testNewestYearDetector,
+                    clock = { farFuture },
                     paginationIdRangeSelector = testPaginationIdRangeSelector,
                     alreadyDownloadedIdsFinder = testAlreadyDownloadedIdsFinder,
                     downloader = testDownloader,
@@ -221,6 +229,7 @@ internal class LivechartCrawlerTest {
                     deadEntriesAccessor = TestDeadEntriesAccessor,
                     lastPageMemorizer = testLastPageMemorizer,
                     newestYearDetector = testNewestYearDetector,
+                    clock = { farFuture },
                     paginationIdRangeSelector = testPaginationIdRangeSelector,
                     alreadyDownloadedIdsFinder = testAlreadyDownloadedIdsFinder,
                     downloader = testDownloader,
@@ -294,6 +303,7 @@ internal class LivechartCrawlerTest {
                     deadEntriesAccessor = TestDeadEntriesAccessor,
                     lastPageMemorizer = testLastPageMemorizer,
                     newestYearDetector = testNewestYearDetector,
+                    clock = { farFuture },
                     paginationIdRangeSelector = testPaginationIdRangeSelector,
                     alreadyDownloadedIdsFinder = testAlreadyDownloadedIdsFinder,
                     downloader = testDownloader,
@@ -370,6 +380,7 @@ internal class LivechartCrawlerTest {
                     deadEntriesAccessor = TestDeadEntriesAccessor,
                     lastPageMemorizer = testLastPageMemorizer,
                     newestYearDetector = testNewestYearDetector,
+                    clock = { farFuture },
                     paginationIdRangeSelector = testPaginationIdRangeSelector,
                     alreadyDownloadedIdsFinder = testAlreadyDownloadedIdsFinder,
                     downloader = testDownloader,
@@ -444,6 +455,7 @@ internal class LivechartCrawlerTest {
                     deadEntriesAccessor = TestDeadEntriesAccessor,
                     lastPageMemorizer = testLastPageMemorizer,
                     newestYearDetector = testNewestYearDetector,
+                    clock = { farFuture },
                     paginationIdRangeSelector = testPaginationIdRangeSelector,
                     alreadyDownloadedIdsFinder = testAlreadyDownloadedIdsFinder,
                     downloader = testDownloader,
@@ -516,6 +528,7 @@ internal class LivechartCrawlerTest {
                     deadEntriesAccessor = TestDeadEntriesAccessor,
                     lastPageMemorizer = testLastPageMemorizer,
                     newestYearDetector = testNewestYearDetector,
+                    clock = { farFuture },
                     paginationIdRangeSelector = testPaginationIdRangeSelector,
                     alreadyDownloadedIdsFinder = testAlreadyDownloadedIdsFinder,
                     downloader = testDownloader,
@@ -526,6 +539,82 @@ internal class LivechartCrawlerTest {
 
                 // then
                 assertThat(invocations).containsExactly("winter-1908", "winter-1909", "winter-1910")
+            }
+        }
+
+        @Test
+        fun `rechecks the pages from the current season on and tba on every run without memorizing them`() {
+            tempDirectory {
+                // given
+                val testMetaDataProviderConfig = object: MetaDataProviderConfig by LivechartConfig {
+                    override fun isTestContext(): Boolean = true
+                }
+
+                val testAppConfig = object: Config by TestAppConfig {
+                    override fun workingDir(metaDataProviderConfig: MetaDataProviderConfig): Directory = tempDir
+                }
+
+                val testDownloadControlStateScheduler = object: DownloadControlStateScheduler by TestDownloadControlStateScheduler {
+                    override suspend fun findEntriesScheduledForCurrentWeek(metaDataProviderConfig: MetaDataProviderConfig): Set<AnimeId> = emptySet()
+                    override suspend fun findEntriesNotScheduledForCurrentWeek(metaDataProviderConfig: MetaDataProviderConfig): Set<AnimeId> = emptySet()
+                }
+
+                val memorized = mutableListOf<String>()
+                val testLastPageMemorizer = object: LastPageMemorizer<String> by TestLastPageMemorizerString {
+                    override suspend fun retrieveLastPage(): String = "winter-2027"
+                    override suspend fun memorizeLastPage(page: String) {
+                        memorized.add(page)
+                    }
+                }
+
+                val testNewestYearDetector = object: HighestIdDetector by TestHighestIdDetector {
+                    override suspend fun detectHighestId(): Int = 2027
+                }
+
+                val requested = mutableListOf<String>()
+                val testPaginationIdRangeSelector = object: PaginationIdRangeSelector<String> by TestPaginationIdRangeSelectorString {
+                    override suspend fun idDownloadList(page: String): List<AnimeId> {
+                        requested.add(page)
+                        return when (page) {
+                            "fall-2026" -> listOf("new-1", "new-2")
+                            "tba" -> listOf("new-2", "new-3")
+                            else -> emptyList()
+                        }
+                    }
+                }
+
+                val testAlreadyDownloadedIdsFinder = object: AlreadyDownloadedIdsFinder by TestAlreadyDownloadedIdsFinder {
+                    override suspend fun alreadyDownloadedIds(metaDataProviderConfig: MetaDataProviderConfig): Set<AnimeId> = emptySet()
+                }
+
+                val downloadedEntries = mutableListOf<AnimeId>()
+                val testDownloader = object: Downloader by TestDownloader {
+                    override suspend fun download(id: AnimeId, onDeadEntry: suspend (AnimeId) -> Unit): String {
+                        downloadedEntries.add(id)
+                        return id
+                    }
+                }
+
+                val crawler = LivechartCrawler(
+                    appConfig = testAppConfig,
+                    metaDataProviderConfig = testMetaDataProviderConfig,
+                    downloadControlStateScheduler = testDownloadControlStateScheduler,
+                    deadEntriesAccessor = TestDeadEntriesAccessor,
+                    lastPageMemorizer = testLastPageMemorizer,
+                    newestYearDetector = testNewestYearDetector,
+                    clock = { Clock.fixed(Instant.parse("2026-10-30T12:00:00Z"), UTC) },
+                    paginationIdRangeSelector = testPaginationIdRangeSelector,
+                    alreadyDownloadedIdsFinder = testAlreadyDownloadedIdsFinder,
+                    downloader = testDownloader,
+                )
+
+                // when
+                crawler.start()
+
+                // then
+                assertThat(requested).containsExactly("fall-2026", "winter-2027", "spring-2027", "summer-2027", "fall-2027", "tba")
+                assertThat(downloadedEntries).containsExactly("new-1", "new-2", "new-3")
+                assertThat(memorized).isEmpty()
             }
         }
 
@@ -581,6 +670,7 @@ internal class LivechartCrawlerTest {
                     deadEntriesAccessor = TestDeadEntriesAccessor,
                     lastPageMemorizer = testLastPageMemorizer,
                     newestYearDetector = testNewestYearDetector,
+                    clock = { farFuture },
                     paginationIdRangeSelector = testPaginationIdRangeSelector,
                     alreadyDownloadedIdsFinder = testAlreadyDownloadedIdsFinder,
                     downloader = testDownloader,
@@ -651,6 +741,7 @@ internal class LivechartCrawlerTest {
                     deadEntriesAccessor = testDeadEntriesAccessor,
                     lastPageMemorizer = testLastPageMemorizer,
                     newestYearDetector = testNewestYearDetector,
+                    clock = { farFuture },
                     paginationIdRangeSelector = testPaginationIdRangeSelector,
                     alreadyDownloadedIdsFinder = testAlreadyDownloadedIdsFinder,
                     downloader = testDownloader,
@@ -718,6 +809,7 @@ internal class LivechartCrawlerTest {
                     deadEntriesAccessor = testDeadEntriesAccessor,
                     lastPageMemorizer = testLastPageMemorizer,
                     newestYearDetector = testNewestYearDetector,
+                    clock = { farFuture },
                     paginationIdRangeSelector = testPaginationIdRangeSelector,
                     alreadyDownloadedIdsFinder = testAlreadyDownloadedIdsFinder,
                     downloader = testDownloader,
@@ -776,6 +868,7 @@ internal class LivechartCrawlerTest {
                     deadEntriesAccessor = TestDeadEntriesAccessor,
                     lastPageMemorizer = testLastPageMemorizer,
                     newestYearDetector = testNewestYearDetector,
+                    clock = { farFuture },
                     paginationIdRangeSelector = testPaginationIdRangeSelector,
                     alreadyDownloadedIdsFinder = testAlreadyDownloadedIdsFinder,
                     downloader = TestDownloader,
