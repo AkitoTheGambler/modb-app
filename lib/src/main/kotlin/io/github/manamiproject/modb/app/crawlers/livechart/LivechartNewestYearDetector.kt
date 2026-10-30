@@ -33,17 +33,20 @@ class LivechartNewestYearDetector(
 
         wait()
 
+        val url = metaDataProviderConfig.buildDataDownloadLink().toURL()
         val response = httpClient.get(
-            url = metaDataProviderConfig.buildDataDownloadLink().toURL(),
+            url = url,
             headers = mapOf("host" to listOf("www.${metaDataProviderConfig.hostname()}")),
         ).checkedBody(this::class)
 
         val data = extractor.extract(response, mapOf(
             "headers" to "//ul[@class='grouped-list']/li//h5",
+            "title" to "//title/text()",
         ))
 
         if (data.notFound("headers")) {
-            throw IllegalStateException("Unable to extract headers.")
+            val title = data.stringOrDefault("title").trim().ifEmpty { "none" }
+            throw IllegalStateException("No list of years found on [$url], page title [$title]. Most likely a block or maintenance page, or the layout has changed.")
         }
 
         val headers = data.listNotNull<String>("headers")

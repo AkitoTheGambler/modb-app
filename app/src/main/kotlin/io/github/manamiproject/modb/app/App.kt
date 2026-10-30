@@ -218,7 +218,9 @@ private fun CoroutineScope.crawl(hostname: String, disabled: Set<String>, jobs: 
             // AniDB refusing the connection is an answer, not a fault in the code, so a stack trace adds nothing.
             log.error("Crawler for [$hostname] stopped, because AniDB refuses the connection (AntiLeech or 403). Try again later or add [$hostname] to [modb.app.disabledCrawlers].")
         } catch (e: Throwable) {
-            log.error("Crawler for [$hostname] stopped: ${e.message}", e)
+            // The message says what happened. The stack trace is only of use when debugging.
+            log.error("Crawler for [$hostname] stopped: ${e.message ?: e::class.simpleName}")
+            log.debug("Stack trace of the stopped crawler for [$hostname]", e)
         }
     })
 }
