@@ -4,6 +4,7 @@ import io.github.manamiproject.modb.anidb.AnidbConfig
 import io.github.manamiproject.modb.anidb.AnidbApiDownloader
 import io.github.manamiproject.modb.anidb.AnidbDownloader
 import io.github.manamiproject.modb.anidb.AnidbDownloader.Companion.ANIDB_PENDING_FILE_INDICATOR
+import io.github.manamiproject.modb.anidb.AnidbDownloader.Companion.ANIDB_RESTRICTED_INDICATOR
 import io.github.manamiproject.modb.anidb.AnidbBannedException
 import io.github.manamiproject.modb.anidb.AnidbWebsiteConfig
 import io.github.manamiproject.modb.anidb.CrawlerDetectedException
@@ -36,6 +37,7 @@ import kotlinx.coroutines.delay
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.UnknownHostException
+import kotlin.io.path.deleteIfExists
 import kotlin.time.DurationUnit.MILLISECONDS
 import kotlin.time.DurationUnit.SECONDS
 import kotlin.time.toDuration
@@ -60,7 +62,8 @@ import kotlin.time.toDuration
  * @property minWaitInMilliseconds Shortest wait before each download.
  * @property maxWaitInMilliseconds Longest wait before each download.
  * @property pagesPerConnection Downloads made through one connection before moving to the next. `0` stays on it.
- * @property pendingEntries Entries which the title dump names, but the API doesn't serve yet.
+ * @property pendingEntries Entries whose addition is most likely still pending, in both modes.
+ * @property restrictedEntries 18+ entries, skipped in website mode.
  * @property titleDump Source of the ids named by the title dump.
  */
 class AnidbCrawler(
@@ -84,6 +87,7 @@ class AnidbCrawler(
     ),
     private val networkController: NetworkController = NetworkControllers.forDeployment(hostname = metaDataProviderConfig.hostname()),
     private val pendingEntries: AnidbPendingEntries = DefaultAnidbPendingEntries.instance,
+    private val restrictedEntries: AnidbRestrictedEntries = DefaultAnidbRestrictedEntries.instance,
     private val titleDump: suspend () -> Set<Int> = { AnidbTitlesDumpHighestIdDetector.instance.allIds() },
     configRegistry: ConfigRegistry = DefaultConfigRegistry.instance,
 ): Crawler {
@@ -146,10 +150,8 @@ class AnidbCrawler(
         val idDownloadList = idRangeSelector.idDownloadList().toMutableList()
 
         if (idDownloadList.isNotEmpty()) {
-            appConfig.workingDir(metaDataProviderConfig).listRegularFiles("*.${ANIDB_PENDING_FILE_SUFFIX}").forEach {
-                idDownloadList.remove(it.fileName().remove(".${ANIDB_PENDING_FILE_SUFFIX}").toInt())
-            }
-
+            movePendingFilesToPendingEntries()
+            skipRestrictedEntries(idDownloadList)
             skipPendingEntries(idDownloadList)
 
             when {
@@ -160,6 +162,31 @@ class AnidbCrawler(
 
         log.info { "Finished crawling data for [${metaDataProviderConfig.hostname()}]." }
     }
+
+    /**
+     * Earlier versions kept a pending website entry as a `.pending` file in the week's working directory.
+     */
+    private suspend fun movePendingFilesToPendingEntries() {
+        appConfig.workingDir(metaDataProviderConfig).listRegularFiles("*.${ANIDB_PENDING_FILE_SUFFIX}").forEach { file ->
+            file.fileName().remove(".${ANIDB_PENDING_FILE_SUFFIX}").toIntOrNull()?.let { pendingEntries.add(it) }
+            file.deleteIfExists()
+        }
+    }
+
+    private suspend fun skipRestrictedEntries(idDownloadList: MutableList<Int>) {
+        if (!isWebsite() || restrictedEntries.all().isEmpty()) {
+            return
+        }
+
+        restrictedEntries.removeAllNotIn(titleDumpIds())
+
+        val restricted = restrictedEntries.all()
+        idDownloadList.removeAll(restricted)
+
+        log.info { "Skipping [${restricted.size}] 18+ entries of [${metaDataProviderConfig.hostname()}]." }
+    }
+
+    private fun isWebsite(): Boolean = metaDataProviderConfig.fileSuffix() == AnidbWebsiteConfig.fileSuffix()
 
     private suspend fun skipPendingEntries(idDownloadList: MutableList<Int>) {
         val pending = pendingEntries.all()
@@ -182,13 +209,12 @@ class AnidbCrawler(
     /**
      * An id which the API refuses, but the title dump names, is not dead. Its addition is most likely still pending.
      * The website only reports an entry as not served when the page says it has been removed from anidb. That is
-     * final, so it always becomes a dead entry. (18+ entries are skipped by the downloader, they never get here.)
+     * final, so it always becomes a dead entry. (Pending and 18+ entries are answered with an indicator instead.)
      */
     private suspend fun handleNotServed(animeId: AnimeId) {
         val id = animeId.toIntOrNull()
-        val fromWebsite = metaDataProviderConfig.fileSuffix() == AnidbWebsiteConfig.fileSuffix()
 
-        if (!fromWebsite && id != null && id in titleDumpIds()) {
+        if (!isWebsite() && id != null && id in titleDumpIds()) {
             pendingEntries.add(id)
         } else {
             id?.let { pendingEntries.remove(it) }
@@ -211,15 +237,17 @@ class AnidbCrawler(
         val response = downloadChangingConnectionWhenRefused(animeId)
 
         when {
-            response.neitherNullNorBlank() && response != ANIDB_PENDING_FILE_INDICATOR -> {
+            response == ANIDB_PENDING_FILE_INDICATOR -> pendingEntries.add(animeId)
+            response == ANIDB_RESTRICTED_INDICATOR -> {
+                pendingEntries.remove(animeId)
+                restrictedEntries.add(animeId)
+            }
+            response.neitherNullNorBlank() -> {
                 val file = appConfig.workingDir(metaDataProviderConfig).resolve("$animeId.${metaDataProviderConfig.fileSuffix()}")
                 response.writeToFile(file, true)
                 deadEntriesAccess.removeDeadEntry(animeId.toString(), metaDataProviderConfig)
                 pendingEntries.remove(animeId)
-            }
-            response == ANIDB_PENDING_FILE_INDICATOR -> {
-                val pendingFile = appConfig.workingDir(metaDataProviderConfig).resolve("$animeId.${ANIDB_PENDING_FILE_SUFFIX}")
-                response.writeToFile(pendingFile, true)
+                restrictedEntries.remove(animeId)
             }
         }
     }
@@ -284,7 +312,7 @@ class AnidbCrawler(
         val instance: AnidbCrawler by lazy { AnidbCrawler() }
 
         /**
-         * Suffix for pending files which have been downloaded, but cannot be converted.
+         * Suffix of the pending files which earlier versions wrote. They are moved to the pending entries on start.
          * @since 7.0.0
          */
         const val ANIDB_PENDING_FILE_SUFFIX: String = "pending"

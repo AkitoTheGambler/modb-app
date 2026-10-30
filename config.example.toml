@@ -11,7 +11,7 @@ disabledCrawlers = ["anidb.net"]
 solverUrl = "http://localhost:8191/v1"
 
 [modb.app.crawler]
-# Dead/pending entries requested again per run, highest IDs first (AniList, Kitsu, MAL, AniDB).
+# Requested again per run: dead entries of AniList, Kitsu, MAL (highest IDs first), pending entries of AniDB (longest unchecked first).
 deadEntriesToRecheck = 0
 
 [modb.core.httpclient]
