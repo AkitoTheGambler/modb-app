@@ -1,10 +1,7 @@
-# Copy to config.toml and fill in the values. All directories must exist.
-
 [modb.app]
 downloadsDirectory = ""
 outputDirectory = ""
 downloadControlStateDirectory = ""
-# Crawlers to skip.
 disabledCrawlers = ["anidb.net"]
 
 [modb.app.challenge]
@@ -26,4 +23,3 @@ client = ""
 clientver = ""
 # Retries while AniDB answers "banned", before the AniDB crawler stops.
 banRetries = 5
-
