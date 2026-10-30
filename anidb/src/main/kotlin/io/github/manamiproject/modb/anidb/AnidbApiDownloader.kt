@@ -103,7 +103,8 @@ public class AnidbApiDownloader(
             // <error>Anime not found</error>, so a check on the code alone lets that through and the
             // apology page ends up stored and converted as if it were an anime.
             if (code in DEAD_ENTRY_CODES || message.lowercase() in DEAD_ENTRY_MESSAGES) {
-                log.info { "Adding [anidbId=$id] to dead entries list, because the API responded with [$message]." }
+                // Whether the id is dead or still pending is decided by the caller, which logs the outcome.
+                log.info { "The API responded with [$message] for [anidbId=$id]." }
                 onDeadEntry.invoke(id)
                 return EMPTY_RESPONSE
             }
